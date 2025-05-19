@@ -7,6 +7,7 @@ const { errors } = require('celebrate');
 const { requestLogger, errorLogger } = require('./middlewares/logger');
 const cors = require('./middlewares/cors');
 const globalErrorHandler = require('./errors/globalErrorHandler');
+const routes = require('./routes');
 
 const { PORT = 3000, NODE_ENV, DATA_BASE_URL } = process.env;
 const app = express();
@@ -15,9 +16,6 @@ mongoose.connect(
   NODE_ENV === 'production'
     ? DATA_BASE_URL
     : 'mongodb://localhost:27017/budgetdb',
-  {
-    useNewUrlParser: true,
-  },
 );
 
 app.use(bodyParser.json());
@@ -25,7 +23,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(requestLogger);
 app.use(cors);
 
-app.use(require('./routes/index'));
+app.use(routes);
 
 app.use(errorLogger);
 app.use(errors());

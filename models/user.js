@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const validator = require('validator');
 const bcrypt = require('bcryptjs');
-const AuthorizationError = require('../errors/authorizationErr');
+const AuthorizationError = require('../errors/authorizationError');
 
 const userSchema = new mongoose.Schema({
   email: {
@@ -21,12 +21,6 @@ const userSchema = new mongoose.Schema({
     minlength: 8,
     select: false,
   },
-  // name: {
-  //   type: String,
-  //   required: true,
-  //   minlength: 2,
-  //   maxlength: 30,
-  // },
 });
 
 userSchema.statics.findUserByCredentials = function checkAuth(email, password) {

@@ -9,7 +9,6 @@ module.exports.createUser = (req, res, next) => {
     .then((hash) => User.create({ ...req.body, password: hash }))
     .then((user) =>
       res.status(201).send({
-        // name: user.name,
         email: user.email,
         _id: user._id,
       }),
@@ -54,14 +53,13 @@ module.exports.getUserInfo = (req, res, next) => {
 };
 
 module.exports.updateUserInfo = (req, res, next) => {
-  const { /*name,*/ email } = req.body;
+  const { email } = req.body;
 
   User.findByIdAndUpdate(
     req.user._id,
-    { /*name,*/ email },
+    { email },
     {
       new: true,
-      runValidators: true,
     },
   )
     .then((user) => res.send(user))
