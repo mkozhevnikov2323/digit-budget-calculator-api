@@ -6,6 +6,8 @@ router.use(require('./auth'));
 
 router.use(auth);
 router.use(require('./users'));
+router.use('/incomes', require('./incomes'));
+router.use('/sources', require('./sources'));
 
 router.use((req, res, next) => {
   next(new NotFoundError('Страница не найдена!'));
