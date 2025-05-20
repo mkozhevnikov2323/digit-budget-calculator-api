@@ -6,8 +6,15 @@ router.use(require('./auth'));
 
 router.use(auth);
 router.use(require('./users'));
+
+// incomes
 router.use('/incomes', require('./incomes'));
 router.use('/sources', require('./sources'));
+
+// expenses
+router.use('/expenses', require('./expenses'));
+router.use('/categories', require('./expenseCategories'));
+router.use('/recipients', require('./recipients'));
 
 router.use((req, res, next) => {
   next(new NotFoundError('Страница не найдена!'));
