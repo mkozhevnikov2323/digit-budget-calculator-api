@@ -16,6 +16,9 @@ router.use('/expenses', require('./expenses'));
 router.use('/categories', require('./expenseCategories'));
 router.use('/recipients', require('./recipients'));
 
+// balance
+router.use('/balance', require('./balance'));
+
 router.use((req, res, next) => {
   next(new NotFoundError('Страница не найдена!'));
 });
