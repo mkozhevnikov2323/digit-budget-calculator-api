@@ -11,7 +11,7 @@ router.post(
       source: Joi.string().required(),
       amount: Joi.number().required().min(0),
       date: Joi.date().required(),
-      comment: Joi.string(),
+      comment: Joi.string().allow('', null),
     }),
   }),
   addIncome,
