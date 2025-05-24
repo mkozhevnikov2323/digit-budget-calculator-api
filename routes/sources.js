@@ -1,17 +1,24 @@
 const router = require('express').Router();
 const { celebrate, Joi } = require('celebrate');
-const { getSources, addSource } = require('../controllers/sources');
+const {
+  getDefaultSources,
+  getUserSources,
+  addUserSource,
+} = require('../controllers/sources');
+const auth = require('../middlewares/auth');
 
-router.get('/', getSources);
+router.get('/default', getDefaultSources);
+
+router.get('/user', getUserSources);
 
 router.post(
-  '/',
+  '/user',
   celebrate({
     body: Joi.object().keys({
       name: Joi.string().required(),
     }),
   }),
-  addSource,
+  addUserSource,
 );
 
 module.exports = router;

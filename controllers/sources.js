@@ -1,19 +1,31 @@
-const Source = require('../models/source');
+const SourceDefault = require('../models/sourceDefault');
+const SourceUser = require('../models/sourceUser');
 
-module.exports.getSources = (req, res, next) => {
-  Source.find({})
-    .then((sources) => res.status(200).send(sources.map((s) => s.name)))
+module.exports.getDefaultSources = (req, res, next) => {
+  SourceDefault.find({})
+    .then((sources) =>
+      res.status(200).send(sources.map(({ _id, name }) => ({ id: _id, name }))),
+    )
     .catch(next);
 };
 
-module.exports.addSource = (req, res, next) => {
-  const { name } = req.body;
+module.exports.getUserSources = (req, res, next) => {
+  SourceUser.find({ owner: req.user._id })
+    .then((sources) =>
+      res.status(200).send(sources.map(({ _id, name }) => ({ id: _id, name }))),
+    )
+    .catch(next);
+};
 
-  Source.create({ name })
-    .then(() => res.status(201).send())
+module.exports.addUserSource = (req, res, next) => {
+  const { name } = req.body;
+  SourceUser.create({ name, owner: req.user._id })
+    .then((doc) => res.status(201).send({ id: doc._id, name: doc.name }))
     .catch((err) => {
       if (err.code === 11000) {
-        return res.status(409).send({ message: 'Источник уже существует!' });
+        return res
+          .status(409)
+          .send({ message: 'У вас уже есть такой источник!' });
       }
       if (err.name === 'ValidationError') {
         return res
