@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-const expenseCategorySchema = new mongoose.Schema(
+const expenseCategoryDefaultSchema = new mongoose.Schema(
   {
     name: {
       type: String,
@@ -12,4 +12,7 @@ const expenseCategorySchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-module.exports = mongoose.model('expenseCategory', expenseCategorySchema);
+module.exports = mongoose.model(
+  'ExpenseCategoryDefault',
+  expenseCategoryDefaultSchema,
+);

@@ -5,7 +5,6 @@ const {
   getUserSources,
   addUserSource,
 } = require('../controllers/sources');
-const auth = require('../middlewares/auth');
 
 router.get('/default', getDefaultSources);
 
