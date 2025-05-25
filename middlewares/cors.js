@@ -1,5 +1,5 @@
 const allowedCors = [
-  'https://digit-budget-calculator.onrender.com/',
+  'https://digit-budget-calculator.onrender.com',
   'http://localhost:5173',
 ];
 
