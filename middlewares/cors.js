@@ -1,6 +1,5 @@
 const allowedCors = [
-  // 'https://movies.m23.nomoredomains.xyz',
-  // 'http://movies.m23.nomoredomains.xyz',
+  'https://digit-budget-calculator.onrender.com/',
   'http://localhost:5173',
 ];
 
