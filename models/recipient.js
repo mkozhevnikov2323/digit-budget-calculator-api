@@ -5,11 +5,17 @@ const recipientSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
+    },
+    owner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+      index: true,
     },
   },
   { timestamps: true },
 );
+recipientSchema.index({ name: 1, owner: 1 }, { unique: true });
 
 module.exports = mongoose.model('recipient', recipientSchema);
