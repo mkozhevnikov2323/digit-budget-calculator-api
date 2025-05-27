@@ -15,6 +15,7 @@ router.use('/sources', require('./sources'));
 router.use('/expenses', require('./expenses'));
 router.use('/categories', require('./expenseCategories'));
 router.use('/recipients', require('./recipients'));
+router.use('/expenseTitles', require('./expenseTitles'));
 
 // balance
 router.use('/balance', require('./balance'));
