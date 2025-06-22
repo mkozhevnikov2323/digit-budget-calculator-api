@@ -9,13 +9,18 @@ const cors = require('./middlewares/cors');
 const globalErrorHandler = require('./errors/globalErrorHandler');
 const routes = require('./routes');
 
-const { PORT = 3000, NODE_ENV, DATA_BASE_URL, DATA_BASE_URL_LOCAL } = process.env;
+const {
+  PORT = 3000,
+  NODE_ENV,
+  DATA_BASE_URL,
+  DATA_BASE_URL_LOCAL,
+} = process.env;
 const app = express();
 
 mongoose.connect(
   NODE_ENV === 'production'
     ? DATA_BASE_URL
-    : DATA_BASE_URL_LOCAL || 'mongodb://localhost:27017/mydatabase',
+    : DATA_BASE_URL_LOCAL || 'mongodb://localhost:27017/budgetdb',
 );
 
 app.use(bodyParser.json());
