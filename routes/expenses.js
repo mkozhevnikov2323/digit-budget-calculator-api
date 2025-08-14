@@ -7,7 +7,18 @@ const {
   deleteExpense,
 } = require('../controllers/expenses');
 
-router.get('/', getExpenses);
+router.get(
+  '/',
+  celebrate({
+    query: Joi.object().keys({
+      month: Joi.number().integer().min(1).max(12).required(),
+      year: Joi.number().integer().min(2020).required(),
+      page: Joi.number().integer().min(1).default(1),
+      limit: Joi.number().integer().min(1).max(100).default(20),
+    }),
+  }),
+  getExpenses,
+);
 
 router.post(
   '/',

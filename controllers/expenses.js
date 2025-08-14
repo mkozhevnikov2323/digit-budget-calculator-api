@@ -1,9 +1,32 @@
 const Expense = require('../models/expense');
 
-module.exports.getExpenses = (req, res, next) => {
-  Expense.find({ owner: req.user._id })
-    .then((expenses) => res.status(200).send(expenses))
-    .catch(next);
+module.exports.getExpenses = async (req, res, next) => {
+  try {
+    const { month, year, page = 1, limit = 20 } = req.query;
+    const userId = req.user._id;
+
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 1);
+
+    const filter = {
+      owner: userId,
+      date: { $gte: startDate, $lt: endDate },
+    };
+
+    const total = await Expense.countDocuments(filter);
+    const expenses = await Expense.find(filter)
+      .skip((page - 1) * limit)
+      .limit(Number(limit));
+
+    res.status(200).send({
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      expenses,
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
 module.exports.addExpense = (req, res, next) => {
