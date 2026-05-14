@@ -2,26 +2,72 @@ const Expense = require('../models/expense');
 
 module.exports.getExpenses = async (req, res, next) => {
   try {
-    const { month, year, page = 1, limit = 20 } = req.query;
+    const {
+      month,
+      year,
+      page,
+      limit,
+      noPagination,
+      title,
+      recipient,
+      category,
+      startDate,
+      endDate,
+    } = req.query;
     const userId = req.user._id;
-
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 1);
 
     const filter = {
       owner: userId,
-      date: { $gte: startDate, $lt: endDate },
     };
+
+    if (startDate && endDate) {
+      filter.date = { $gte: new Date(startDate), $lte: new Date(endDate) };
+    } else if (month && year) {
+      const startOfMonth = new Date(year, month - 1, 1);
+      const endOfMonth = new Date(year, month, 1);
+      filter.date = { $gte: startOfMonth, $lt: endOfMonth };
+    } else if (year) {
+      const startOfYear = new Date(year, 0, 1);
+      const endOfYear = new Date(year + 1, 0, 1);
+      filter.date = { $gte: startOfYear, $lt: endOfYear };
+    }
+
+    if (title) {
+      filter.title = { $regex: title, $options: 'i' };
+    }
+    if (recipient) {
+      filter.recipient = { $regex: recipient, $options: 'i' };
+    }
+    if (category) {
+      filter.category = category;
+    }
+
+    if (noPagination) {
+      const expenses = await Expense.find(filter).sort({
+        date: 1,
+        createdAt: 1,
+      });
+      return res.status(200).send({
+        total: expenses.length,
+        page: 1,
+        limit: expenses.length,
+        expenses,
+      });
+    }
+
+    const currentPage = parseInt(page, 10) || 1;
+    const currentLimit = parseInt(limit, 10) || 20;
 
     const total = await Expense.countDocuments(filter);
     const expenses = await Expense.find(filter)
-      .skip((page - 1) * limit)
-      .limit(Number(limit));
+      .sort({ date: 1, createdAt: 1 })
+      .skip((currentPage - 1) * currentLimit)
+      .limit(currentLimit);
 
-    res.status(200).send({
+    return res.status(200).send({
       total,
-      page: Number(page),
-      limit: Number(limit),
+      page: currentPage,
+      limit: currentLimit,
       expenses,
     });
   } catch (err) {
