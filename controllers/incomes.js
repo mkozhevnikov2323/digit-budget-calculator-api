@@ -1,9 +1,72 @@
 const Income = require('../models/income');
 
-module.exports.getIncomes = (req, res, next) => {
-  Income.find({ owner: req.user._id })
-    .then((incomes) => res.status(200).send(incomes))
-    .catch(next);
+module.exports.getIncomes = async (req, res, next) => {
+  try {
+    const {
+      month,
+      year,
+      page,
+      limit,
+      noPagination,
+      source,
+      startDate,
+      endDate,
+    } = req.query;
+
+    const userId = req.user._id;
+    const filter = { owner: userId };
+
+    if (startDate && endDate) {
+      filter.date = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate),
+      };
+    } else if (month && year) {
+      const startOfMonth = new Date(year, month - 1, 1);
+      const endOfMonth = new Date(year, month, 1);
+      filter.date = { $gte: startOfMonth, $lt: endOfMonth };
+    } else if (year) {
+      const startOfYear = new Date(year, 0, 1);
+      const endOfYear = new Date(year + 1, 0, 1);
+      filter.date = { $gte: startOfYear, $lt: endOfYear };
+    }
+
+    if (source) {
+      filter.source = { $regex: source, $options: 'i' };
+    }
+
+    if (noPagination === 'true' || noPagination === true) {
+      const incomes = await Income.find(filter)
+        .sort({ date: 1, createdAt: 1 })
+        .lean();
+
+      return res.status(200).json({
+        total: incomes.length,
+        page: 1,
+        limit: incomes.length,
+        incomes,
+      });
+    }
+
+    const currentPage = parseInt(page, 10) || 1;
+    const currentLimit = parseInt(limit, 10) || 20;
+
+    const total = await Income.countDocuments(filter);
+    const incomes = await Income.find(filter)
+      .sort({ date: 1, createdAt: 1 })
+      .skip((currentPage - 1) * currentLimit)
+      .limit(currentLimit)
+      .lean();
+
+    return res.status(200).json({
+      total,
+      page: currentPage,
+      limit: currentLimit,
+      incomes,
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
 module.exports.addIncome = (req, res, next) => {

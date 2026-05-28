@@ -7,7 +7,23 @@ const {
   deleteIncome,
 } = require('../controllers/incomes');
 
-router.get('/', getIncomes);
+router.get(
+  '/',
+  celebrate({
+    query: Joi.object().keys({
+      startDate: Joi.date().iso(),
+      endDate: Joi.date().iso(),
+      month: Joi.number().integer().min(1).max(12),
+      year: Joi.number().integer().min(2020),
+      source: Joi.string(),
+      page: Joi.number().integer().min(1),
+      limit: Joi.number().integer().min(1).max(100),
+      noPagination: Joi.boolean().default(false),
+      _summary: Joi.boolean(),
+    }),
+  }),
+  getIncomes,
+);
 
 router.post(
   '/',
