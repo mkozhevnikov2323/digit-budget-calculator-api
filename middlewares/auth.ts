@@ -1,7 +1,8 @@
-const jwt = require('jsonwebtoken');
-const AuthorizationError = require('../errors/authorizationError');
+import type { RequestHandler } from 'express';
+import jwt = require('jsonwebtoken');
+import AuthorizationError = require('../errors/authorizationError');
 
-module.exports = (req, res, next) => {
+const auth: RequestHandler = (req, res, next) => {
   const { authorization } = req.headers;
   if (!authorization || !authorization.startsWith('Bearer ')) {
     return next(new AuthorizationError('Необходима авторизация.'));
@@ -11,9 +12,11 @@ module.exports = (req, res, next) => {
   try {
     const payload = jwt.verify(
       token,
-      process.env.NODE_ENV === 'production'
+      // Erased assertion: preserve an absent production secret at runtime.
+      // jsonwebtoken rejects it; no fallback or startup validation is added.
+      (process.env.NODE_ENV === 'production'
         ? process.env.JWT_SECRET
-        : 'super-secret-key',
+        : 'super-secret-key') as jwt.Secret,
     );
     req.user = payload;
     return next();
@@ -21,3 +24,5 @@ module.exports = (req, res, next) => {
     return next(new AuthorizationError('Необходима авторизация!'));
   }
 };
+
+export = auth;

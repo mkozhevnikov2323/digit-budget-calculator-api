@@ -17,8 +17,8 @@ frontend loan-related features establish a separate backend loan domain.
 - Node.js, Express 5, MongoDB and Mongoose 8.
 - JWT authentication and Celebrate/Joi validation.
 - CommonJS with strict TypeScript entry points (`app.ts`, `server.ts`) and
-  error modules (`errors/*.ts`). Controllers, routes, models and middleware
-  remain legacy JavaScript;
+  error modules (`errors/*.ts`) plus JWT middleware (`middlewares/auth.ts`).
+  Controllers, routes, models and other middleware remain legacy JavaScript;
   the incremental migration is not complete.
 - Preserve `controllers/`, `routes/`, `models/`, `middlewares/` and `errors/`
   unless a refactor is explicitly approved.
@@ -58,7 +58,8 @@ These are policies for future work, not permission to refactor existing modules.
   verification scope. Report actual results, missing coverage and unverified
   behavior; never claim an unexecuted check passed.
 - Keep test-only work separate from unrelated production refactoring.
-- Run `npm run build` before `npm run test:smoke`: error contract tests load
+- Run `npm run build` before `npm run test:smoke`: JWT contracts load
+  `dist/middlewares/auth.js`, error contract tests load
   compiled `dist/errors/*.js` and the existing 14 isolated Express checks
   use compiled `dist/app.js` and Node's built-in test runner. They use real
   middleware, a temporary log directory and
@@ -112,6 +113,21 @@ validation. `tests/error-contract.test.cjs` covers compiled classes and handler
 contracts alongside the unchanged HTTP smoke tests. The tsx CJS loader also
 resolves these TypeScript modules from legacy JS consumers without bootstrap.
 
-B3b (authentication middleware/context typing) needs separate architectural
-review; do not begin it automatically. Controllers, routes, models and middleware
-remain unchecked JavaScript. No production deployment is configured or authorized.
+`middlewares/auth.ts` uses Express 5 RequestHandler, real jsonwebtoken and
+`export = auth` for unchanged legacy require consumers. `types/express.d.ts`
+adds only optional `Request.user?: unknown`: a verified JWT is not proof of
+validated owner identity or checked data ownership. The erased secret assertion
+preserves missing production JWT_SECRET behavior (verification fails); prefix,
+replace-based extraction, secret selection, payload assignment and both error
+messages/punctuation remain unchanged. Do not add claim validation in a migration.
+`tests/auth-contract.test.cjs` uses synthetic JWTs, real signing/verification,
+a fixed clock, serial environment-sensitive cases and restored NODE_ENV/JWT_SECRET.
+The previous 14 HTTP smoke and 21 error contracts remain unchanged.
+
+Known follow-ups require separate approval: legacy non-production secret selection
+and acceptance of signed strings/objects without a valid _id remain in place.
+Future owner/security contracts must separately establish identity validation and
+data ownership. This migration is not a complete authentication security audit.
+Controllers, routes, models and other middleware remain unchecked JavaScript.
+Do not start B3c/B4 or another migration without architectural review.
+No production deployment is configured or authorized.

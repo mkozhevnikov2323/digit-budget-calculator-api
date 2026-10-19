@@ -130,8 +130,9 @@ JSON/urlencoded parsing и CORS. Обращения к MongoDB и запросы
 
 CI на Node.js 22 выполняет `npm ci`, typecheck, build, smoke-тесты и проверку
 `dist/app.js` / `dist/server.js`. Compiled bootstrap не запускается.
-Контроллеры, маршруты, модели и middleware остаются JavaScript;
-слой errors переведён на TypeScript в B3a (см. ниже).
+Контроллеры, маршруты, модели и остальные middleware остаются JavaScript;
+JWT middleware переведён в `auth.ts` на этапе B3b,
+слой errors — на TypeScript в B3a (см. ниже).
 `allowJs: true` и `checkJs: false` сохранены. Authenticated CRUD, реальная
 авторизация владельцев и DB bootstrap этими smoke-тестами не проверены.
 
@@ -163,7 +164,7 @@ nodemon --watch . --ext ts,js,json --ignore dist/ --exec tsx server.ts
 production start script или deployment не добавляются.
 
 Слой errors мигрирован отдельно в B3a; типизация middleware/auth требует
-отдельного рассмотрения B3b. B2b не меняет финансовые правила, JWT, owner checks,
+отдельного этапа B3b (см. ниже). B2b не меняет финансовые правила, JWT, owner checks,
 HTTP-контракты или схемы БД.
 
 ---
@@ -189,9 +190,44 @@ HTTP-контракты или схемы БД.
 CI сохраняет порядок install → typecheck → build → test:smoke → artifacts.
 Сборка перед тестами обязательна; тесты не запускают bootstrap или MongoDB.
 
-Контроллеры, маршруты, модели и middleware, включая JWT/auth, остаются JavaScript
-с `checkJs: false`. Authenticated CRUD и реальные операции MongoDB не проверены.
-B3b требует отдельного архитектурного review и автоматически не начинается.
+Контроллеры, маршруты, модели и остальные middleware остаются JavaScript
+с `checkJs: false`; JWT/auth мигрирован отдельно в B3b.
+Authenticated CRUD и реальные операции MongoDB не проверены.
+B3b описан ниже; последующие этапы требуют отдельного архитектурного review.
+
+---
+
+## JWT middleware на TypeScript (B3b)
+
+`middlewares/auth.ts` заменяет `auth.js`, использует Express 5 `RequestHandler`
+и экспорт `export = auth`. Legacy маршруты продолжают получать функцию через
+прежний `require('../middlewares/auth')` без `.default`; сборка создаёт
+`dist/middlewares/auth.js`, исходный TS доступен через существующий tsx loader.
+Команда nodemon + tsx и bootstrap не изменены.
+
+`types/express.d.ts` добавляет только `Request.user?: unknown`. Тип не обещает
+наличие объекта или валидного `_id`. Сохранены точный префикс `Bearer `, извлечение
+через `replace`, выбор JWT-секрета, прямое присваивание payload и оба прежних
+сообщения 401 с исходной пунктуацией. Узкая стираемая assertion на границе verify
+не заменяет отсутствующий production `JWT_SECRET`: в этом случае проверка токена
+завершается прежней ошибкой. Генерация токена и срок семь дней не менялись.
+
+После обязательного `npm run build` команда `npm run test:smoke` явно запускает
+три файла: прежние 14 app smoke, 21 error contract и новые auth contract tests.
+JWT-тесты используют реальные sign/verify, синтетические payload/ключи,
+фиксированные часы и последовательные проверки с восстановлением NODE_ENV и
+JWT_SECRET. Секреты и токены не логируются. CI остаётся на Node.js 22 с прежним
+порядком проверок и дополнительно проверяет артефакт `dist/middlewares/auth.js`.
+Добавлена только dev-зависимость типов `@types/jsonwebtoken`.
+
+Известные ограничения сохранены для отдельного security review: development
+секрет остаётся прежним, подписанные строки и объекты без корректного `_id`
+принимаются middleware. Успешная проверка JWT, валидация личности владельца и
+проверка владения данными — три разных гарантии. Будущие owner/security contract
+тесты должны проверять последние две отдельно. Это не полный аудит безопасности;
+authenticated MongoDB CRUD и owner isolation здесь не проверены. Контроллеры,
+маршруты, модели и остальные middleware остаются unchecked JavaScript.
+B3c/B4 не начинаются автоматически; требуется отдельное архитектурное review.
 
 ---
 
