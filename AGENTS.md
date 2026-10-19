@@ -17,8 +17,8 @@ frontend loan-related features establish a separate backend loan domain.
 - Node.js, Express 5, MongoDB and Mongoose 8.
 - JWT authentication and Celebrate/Joi validation.
 - CommonJS with strict TypeScript entry points (`app.ts`, `server.ts`) and
-  error modules (`errors/*.ts`) plus JWT middleware (`middlewares/auth.ts`).
-  Controllers, routes, models and other middleware remain legacy JavaScript;
+  error modules (`errors/*.ts`) and all shared middleware (`middlewares/*.ts`).
+  Controllers, routes and models remain legacy JavaScript;
   the incremental migration is not complete.
 - Preserve `controllers/`, `routes/`, `models/`, `middlewares/` and `errors/`
   unless a refactor is explicitly approved.
@@ -58,7 +58,7 @@ These are policies for future work, not permission to refactor existing modules.
   verification scope. Report actual results, missing coverage and unverified
   behavior; never claim an unexecuted check passed.
 - Keep test-only work separate from unrelated production refactoring.
-- Run `npm run build` before `npm run test:smoke`: JWT contracts load
+- Run `npm run build` before `npm run test` (or `test:smoke`): JWT contracts load
   `dist/middlewares/auth.js`, error contract tests load
   compiled `dist/errors/*.js` and the existing 14 isolated Express checks
   use compiled `dist/app.js` and Node's built-in test runner. They use real
@@ -101,7 +101,7 @@ URI assertion is erased; it does not validate or replace a missing runtime URI.
 `npm run typecheck` emits nothing; `npm run build` outputs CommonJS only into
 ignored `dist/`. Package main points to `dist/server.js` because the source JS
 entry point was removed; this is not a deployment/start command. CI on Node.js 22
-runs install, typecheck, build, compiled-app smoke tests and artifact checks.
+runs install, typecheck, build, compiled-app/middleware contracts and artifact checks.
 Compilation does not prove legacy JavaScript type safety or DB bootstrap behavior.
 
 `errors/authorizationError.ts`, `forbiddenError.ts`, `notFoundError.ts` and
@@ -128,6 +128,30 @@ Known follow-ups require separate approval: legacy non-production secret selecti
 and acceptance of signed strings/objects without a valid _id remain in place.
 Future owner/security contracts must separately establish identity validation and
 data ownership. This migration is not a complete authentication security audit.
-Controllers, routes, models and other middleware remain unchecked JavaScript.
-Do not start B3c/B4 or another migration without architectural review.
+`middlewares/cors.ts` uses RequestHandler and export =; `logger.ts` exports
+exactly { requestLogger, errorLogger } with Express 5 types and bundled
+Winston/express-winston definitions. app.ts uses import = require for the logger
+object because a typed export = object cannot keep the old named TS import.
+Middleware order and property lookup timing are unchanged.
+CORS keeps the two exact origins and module-time DEFAULT_ALLOWED_METHODS capture;
+undefined preflight values still reach Express and become the literal "undefined".
+Logging still creates File transports request.log/error.log with JSON at import.
+No filtering, redaction, defaults, transports or logging policies were changed.
+
+`npm run test` aliases the explicit `test:smoke` command: the previous 57 tests
+plus `cors-contract.test.cjs` and `logger-contract.test.cjs`, all using compiled
+modules after build. CORS tests isolate env and require cache. Logger tests use
+real Winston/File I/O in a temporary cwd, close loggers and await actual fs stream
+close events before deleting logs; DB/network/listen are blocked. Existing app
+smoke tests cover the real compiled app with these middleware.
+
+Security follow-up: express-winston defaults include request headers/url/query
+with an empty header blacklist; sensitive headers/query and error metadata may be
+logged. This PR does not audit or change logging policy. Unknown-origin OPTIONS
+still ends without allow-origin; missing preflight configuration is not repaired.
+JWT signature verification is not sufficient to establish valid owner identity.
+Backend authorization and ownership require separate contract/security verification
+before adding live multiuser financial classification.
+Controllers, routes and models remain unchecked JavaScript.
+Do not start B4 or another migration without architectural review.
 No production deployment is configured or authorized.
