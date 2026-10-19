@@ -69,6 +69,45 @@ RESTful API для управления личными доходами, рас�
 
 ---
 
+## Постепенная миграция на TypeScript (B1)
+
+Миграция выполняется небольшими группами модулей. Пока JavaScript и TypeScript
+сосуществуют: `allowJs: true`, `checkJs: false`, строгий режим для нового
+TypeScript-кода. Формат модулей остаётся CommonJS; существующие `.js` в B1
+не переводятся на TypeScript.
+
+- `npm run dev` по-прежнему запускает `nodemon server.js`.
+- `npm run typecheck` выполняет `tsc --noEmit -p tsconfig.json` без генерации файлов.
+- `npm run build` выполняет `tsc -p tsconfig.json` и помещает результат только
+  в игнорируемый Git каталог `dist/`, включая `dist/server.js` и прежние
+  каталоги контроллеров, маршрутов, моделей, middleware и обработчиков ошибок.
+
+Успешная компиляция пока не означает типобезопасность существующего JavaScript:
+`checkJs` отключён на переходный период. Она также не доказывает корректность
+runtime, авторизации или финансовой логики. Тестового framework и тестовой
+команды на этапе B1 ещё нет.
+
+Правила архитектуры, безопасности финансовых данных, миграции и работы агентов
+описаны в корневом [AGENTS.md](./AGENTS.md). GitHub Actions проверяет PR в `main`
+на Node.js 22: `npm ci`, typecheck, build и наличие `dist/server.js`.
+Эти проверки не запускают сервер и не требуют MongoDB или секретов.
+
+В B2 отдельно рассматриваются разделение app/server, TypeScript entry point,
+запуск TypeScript в разработке и изолированные smoke-тесты. B1 не добавляет
+production start script или deployment-конфигурацию. `server.js` подключает
+MongoDB и открывает HTTP listener при выполнении; не импортируйте и не запускайте
+его или `dist/server.js` для проверки сборки.
+
+Известные расхождения прежней документации с текущей реализацией: пример выше
+содержит `MONGODB_URI`, однако `server.js` читает `DATA_BASE_URL` при
+`NODE_ENV=production`, иначе `DATA_BASE_URL_LOCAL` с локальным fallback.
+Путь категорий в `routes/index.js` — `/categories`, а ниже указан
+`/expense-categories`. Проверка JWT читает `JWT_SECRET` только в production.
+Эти расхождения зафиксированы; имена переменных и runtime-конфигурация в B1
+не изменяются.
+
+---
+
 ## Структура проекта
 
 ```
