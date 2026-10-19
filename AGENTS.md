@@ -63,8 +63,9 @@ These are policies for future work, not permission to refactor existing modules.
   compiled `dist/errors/*.js` and the existing 14 isolated Express checks
   use compiled `dist/app.js` and Node's built-in test runner. They use real
   middleware, a temporary log directory and
-  ephemeral loopback listeners, with database access blocked. Broader contract,
-  authenticated ownership and financial tests remain future work.
+  ephemeral loopback listeners, with database access blocked. Expense/income
+  ownership contracts use real HTTP/JWT/controllers and mocked persistence;
+  real MongoDB integration and ownership in other domains remain future work.
 - `server.ts` and compiled `dist/server.js` connect to MongoDB and listen as an
   import side effect. Never import/execute either in automated checks. Keep
   dotenv initialization before application evaluation in compiled CommonJS.
@@ -155,3 +156,26 @@ before adding live multiuser financial classification.
 Controllers, routes and models remain unchecked JavaScript.
 Do not start B4 or another migration without architectural review.
 No production deployment is configured or authorized.
+
+## Financial ownership contracts (B3d)
+
+`tests/financial-ownership-contract.test.cjs` exercises the real compiled app,
+routes, Celebrate, JWT middleware and controllers for expense/income CRUD.
+`tests/helpers/financial-persistence.cjs` replaces only model persistence calls:
+it records model/method/filter/payload/options/query chains, requires a supplied
+owner matching the independently expected HTTP actor, and selects or mutates
+only fixtures matching the actual filter. It must never repair a missing owner.
+Explicit assertions cover find/count and {_id, owner} mutations; create must
+carry the JWT-derived owner. Unscoped methods and real DB execution are blocked.
+
+Fixtures are fictional A/B owners, with serial alternating requests, pagination,
+lean differences, filters, foreign/missing records and validation/auth failures.
+The explicit test:smoke script includes this suite; npm run test stays its alias.
+Build first. Temporary cwd/logs, real Winston/fs resources, env/model mocks and
+ephemeral loopback listeners must be restored/closed. Never print auth headers.
+
+This is a mocked-model HTTP/controller contract baseline, not MongoDB integration
+or complete owner-isolation proof. It does not validate JWT _id shape/user
+existence, balance/users/reference ownership, date boundaries, money precision or
+logging redaction. These require separately approved security/integration work.
+Do not begin JWT hardening, real DB tests or B4 automatically.

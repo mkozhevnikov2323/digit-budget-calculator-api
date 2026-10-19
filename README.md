@@ -258,7 +258,8 @@ Security follow-up: defaults express-winston включают request headers/ur
 не расширяет и не меняет логирование, не является полным аудитом его безопасности.
 
 После `npm run build` запускайте `npm run test`: это alias сохранённой команды
-`test:smoke` с явными пятью файлами. Прежние 57 тестов дополнены 14 CORS и 6 logging-тестами:
+`test:smoke` с явно перечисленными файлами. На этапе B3c прежние 57 тестов
+дополнены 14 CORS и 6 logging-тестами:
 `tests/cors-contract.test.cjs` (точный allowlist, preflight, undefined headers,
 module-time env и изоляция require cache) и `tests/logger-contract.test.cjs`
 (CommonJS, реальные File transports, JSON-записи, делегирование и cleanup).
@@ -274,6 +275,36 @@ CI Node.js 22: npm ci → typecheck → build → test → artifact verification
 проверки backend authorization и ownership. Owner isolation и authenticated
 MongoDB CRUD здесь не проверены. B4 и усиление JWT/ownership не начинаются
 автоматически; требуется отдельное архитектурное review.
+
+---
+
+## Контракты владения финансовыми данными (B3d)
+
+`tests/financial-ownership-contract.test.cjs` проверяет expense/income CRUD
+через реальный `dist/app.js`, маршруты, Celebrate, JWT и контроллеры. Только
+Mongoose persistence заменён узким test double из
+`tests/helpers/financial-persistence.cjs`: он проверяет переданный owner до
+выбора фикстур, фиксирует filter/payload/options и цепочки sort/skip/limit/lean.
+Пропуск owner в find/count, update/delete или create приводит к assertion,
+а не к автоматической подстановке нужного владельца.
+
+Два вымышленных пользователя A/B проверяются в обоих направлениях: пагинация,
+noPagination, date/category/source фильтры, создание, свои и чужие update/delete,
+чередование запросов, 404, неверный ID, JWT и запрещённый owner в body/query.
+Отказы JWT/Celebrate не должны вызывать финансовую persistence. Все прежние
+77 тестов сохранены; новый файл добавлен в явный `test:smoke`, `npm run test`
+остаётся alias. Перед тестами обязательна сборка. Listener доступны только на
+эфемерных портах 127.0.0.1, логи изолированы и удаляются после закрытия потоков.
+Authorization headers не выводятся в результатах, env и mocks восстанавливаются.
+
+Граница доказательства — HTTP/controller queries с mocked models. Реальная БД,
+Mongoose casting/validation, индексы и конкурентные операции не проверяются.
+JWT пока не валидирует форму _id и существование пользователя. Изоляция balance,
+users, categories, sources, recipients и titles полностью не доказана.
+Date boundaries, monetary precision и logging redaction не менялись.
+Следующий security milestone требует отдельного согласования: контракт validated
+owner identity, затем изолированная MongoDB integration-проверка ownership.
+B4, JWT hardening и DB integration автоматически не начинаются.
 
 ---
 
