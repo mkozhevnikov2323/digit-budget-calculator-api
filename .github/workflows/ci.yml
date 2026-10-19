@@ -27,14 +27,14 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Isolated Express smoke tests
-        run: npm run test:smoke
-
       - name: Typecheck
         run: npm run typecheck
 
       - name: Build
         run: npm run build
 
-      - name: Verify server artifact without executing it
-        run: test -f dist/server.js
+      - name: Isolated compiled Express smoke tests
+        run: npm run test:smoke
+
+      - name: Verify application and server artifacts without executing bootstrap
+        run: test -f dist/app.js && test -f dist/server.js

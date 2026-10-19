@@ -50,9 +50,9 @@ describe('isolated Express app (no server bootstrap or database)', { concurrency
       return logger;
     });
     importListenerGuard = mock.method(net.Server.prototype, 'listen', () => {
-      throw new Error('Importing app.js must not start a listener');
+      throw new Error('Importing dist/app.js must not start a listener');
     });
-    try { app = require('../app'); }
+    try { app = require('../dist/app.js'); }
     finally { importListenerGuard.mock.restore(); }
   });
 
@@ -115,7 +115,7 @@ describe('isolated Express app (no server bootstrap or database)', { concurrency
     assert.equal(typeof app.listen, 'function');
     assert.equal(importListenerGuard.mock.callCount(), 0);
     assert.equal(mongoose.connection.readyState, 0);
-    assert.equal(require.cache[require.resolve('../server')], undefined);
+    assert.equal(require.cache[require.resolve('../dist/server.js')], undefined);
     for (const call of forbiddenCalls) assert.equal(call.mock.callCount(), 0);
   });
 

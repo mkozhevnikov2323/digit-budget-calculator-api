@@ -2,9 +2,9 @@
   "name": "digit-budget-calculator-api",
   "version": "1.0.0",
   "description": "",
-  "main": "server.js",
+  "main": "dist/server.js",
   "scripts": {
-    "dev": "nodemon server.js",
+    "dev": "nodemon --watch . --ext ts,js,json --ignore dist/ --exec tsx server.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
     "test:smoke": "node --test tests/app-smoke.test.cjs"
@@ -36,9 +36,11 @@
     "winston": "^3.17.0"
   },
   "devDependencies": {
+    "@types/express": "5.0.6",
     "@types/node": "22.20.5",
     "nodemon": "^3.1.10",
     "prettier": "^3.5.3",
+    "tsx": "4.23.15",
     "typescript": "5.9.3"
   }
 }

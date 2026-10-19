@@ -35,7 +35,7 @@ RESTful API для управления личными доходами, рас�
 - [JWT](https://jwt.io/)
 - [Joi](https://joi.dev/)
 - [Winston](https://github.com/winstonjs/winston)
-- [Nodemon](https://nodemon.io/) для разработки
+- [Nodemon](https://nodemon.io/) + [tsx](https://tsx.is/) для разработки
 
 ---
 
@@ -76,7 +76,7 @@ RESTful API для управления личными доходами, рас�
 TypeScript-кода. Формат модулей остаётся CommonJS; существующие `.js` в B1
 не переводятся на TypeScript.
 
-- `npm run dev` по-прежнему запускает `nodemon server.js`.
+- `npm run dev` запускает TypeScript entry point через nodemon + tsx (см. B2b ниже).
 - `npm run typecheck` выполняет `tsc --noEmit -p tsconfig.json` без генерации файлов.
 - `npm run build` выполняет `tsc -p tsconfig.json` и помещает результат только
   в игнорируемый Git каталог `dist/`, включая `dist/server.js` и прежние
@@ -93,12 +93,12 @@ runtime, авторизации или финансовой логики. Тес
 Компиляторные проверки не запускают сервер и не требуют MongoDB или секретов.
 
 Следующие шаги миграции рассматриваются отдельно. B1 не добавляет
-production start script или deployment-конфигурацию. `server.js` подключает
+production start script или deployment-конфигурацию. `server.ts` подключает
 MongoDB и открывает HTTP listener при выполнении; не импортируйте и не запускайте
 его или `dist/server.js` для проверки сборки.
 
 Известные расхождения прежней документации с текущей реализацией: пример выше
-содержит `MONGODB_URI`, однако `server.js` читает `DATA_BASE_URL` при
+содержит `MONGODB_URI`, однако `server.ts` читает `DATA_BASE_URL` при
 `NODE_ENV=production`, иначе `DATA_BASE_URL_LOCAL` с локальным fallback.
 Путь категорий в `routes/index.js` — `/categories`, а ниже указан
 `/expense-categories`. Проверка JWT читает `JWT_SECRET` только в production.
@@ -107,31 +107,62 @@ MongoDB и открывает HTTP listener при выполнении; не и
 
 ---
 
-## Разделение приложения и запуска (B2a)
+## Приложение и bootstrap (B2a/B2b)
 
-`app.js` создаёт и экспортирует настроенное Express-приложение: body parsers,
+`app.ts` создаёт и экспортирует настроенное Express-приложение: body parsers,
 логгеры, CORS, маршруты и обработчики ошибок в прежнем порядке. Он не вызывает
 `mongoose.connect` и не открывает HTTP listener. Импорт маршрутов по-прежнему
 создаёт файловые логгеры и включает существующий вызов dotenv в контроллере.
 
-`server.js` загружает dotenv до приложения, выбирает прежний MongoDB URL,
+`server.ts` загружает dotenv до приложения, выбирает прежний MongoDB URL,
 вызывает подключение и запускает listener. Порядок и обработка результата
 подключения не переработаны: ожидание успешного подключения перед listen
-не добавлено. `npm run dev` остаётся `nodemon server.js`.
+не добавлено. `npm run dev` теперь выполняет TypeScript entry point (см. ниже).
 
-`npm run test:smoke` запускает встроенный Node.js test runner. Тесты используют
+После `npm run build` команда `npm run test:smoke` запускает встроенный Node.js
+test runner и импортирует именно `dist/app.js`. Тесты используют
 настоящие маршруты и middleware, временный каталог для логов/dotenv и
 эфемерные порты только на `127.0.0.1`. Они проверяют импорт без подключения и
 listener, запуск/закрытие, ответы без авторизации, валидацию публичных auth-запросов,
 JSON/urlencoded parsing и CORS. Обращения к MongoDB и запросы к БД заблокированы.
-Созданные listener и логгеры закрываются; `server.js` тесты не импортируют.
+Созданные listener и логгеры закрываются; `server.ts` и `dist/server.js` тесты
+не импортируют. Без предварительной сборки `test:smoke` не готовит dist сам.
 
-CI на Node.js 22 выполняет smoke-тесты после `npm ci`, затем typecheck, build
-и проверку артефакта. Сборка включает `dist/app.js` и `dist/server.js`; compiled
-bootstrap не запускается. Приложение остаётся JavaScript/CommonJS, `checkJs`
-пока отключён. Authenticated CRUD, реальная авторизация владельцев и работа БД
-этими smoke-тестами не проверены. TypeScript entry points и запуск TypeScript
-в разработке относятся к отдельно согласуемому B2b.
+CI на Node.js 22 выполняет `npm ci`, typecheck, build, smoke-тесты и проверку
+`dist/app.js` / `dist/server.js`. Compiled bootstrap не запускается.
+Контроллеры, маршруты, модели, middleware и errors остаются JavaScript;
+`allowJs: true` и `checkJs: false` сохранены. Authenticated CRUD, реальная
+авторизация владельцев и DB bootstrap этими smoke-тестами не проверены.
+
+---
+
+## TypeScript entry points (B2b)
+
+`app.ts` и `server.ts` заменяют исходные `.js` без параллельных копий.
+`app.ts` использует типы Express 5 и `export = app`: CommonJS-потребитель
+получает Express-функцию через `require('./dist/app.js')`, без `.default`.
+Последовательные `import = require` в bootstrap сохраняют выполнение dotenv
+до импорта приложения; добавленная URI type assertion не меняет runtime-значение
+и не вводит обязательную валидацию env.
+
+Публичная команда разработки — `npm run dev`:
+
+```sh
+nodemon --watch . --ext ts,js,json --ignore dist/ --exec tsx server.ts
+```
+
+Существующий nodemon сохранён: он отслеживает новые TS и legacy JS, включая
+изменения импортированных модулей; `dist/` исключён от перезапусков. Файлы логов
+не входят в отслеживаемые расширения, node_modules/.git исключены по умолчанию.
+Добавлены только dev-зависимости `tsx` и `@types/express` версии 5.
+
+Сборка остаётся ES2022/CommonJS со strict mode и выводом в `dist/`.
+`package.json.main` указывает на `dist/server.js`, потому что исходный
+`server.js` удалён. Перед использованием compiled entry нужна сборка; отдельный
+production start script или deployment не добавляются.
+
+Следующий отдельно рассматриваемый этап — типизация общих errors/middleware/auth.
+B2b не меняет финансовые правила, JWT, owner checks, HTTP-контракты или схемы БД.
 
 ---
 
@@ -144,8 +175,8 @@ bootstrap не запускается. Приложение остаётся Jav
 ├── middlewares # Авторизация, CORS, логгер
 ├── models # Схемы данных Mongoose
 ├── routes # Маршруты API
-├── app.js # Конфигурация Express без подключения к БД и listener
-├── server.js # Точка входа приложения
+├── app.ts # Конфигурация Express без подключения к БД и listener
+├── server.ts # TypeScript bootstrap приложения
 ├── tests # Изолированные smoke-тесты на Node.js test runner
 ├── request.log # Файл логов запросов
 ├── error.log # Файл логов ошибок
