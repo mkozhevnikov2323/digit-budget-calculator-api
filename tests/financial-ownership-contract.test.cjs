@@ -130,7 +130,7 @@ describe('financial ownership through the real compiled Express app', { concurre
     }
   });
 
-  const request = async (owner, method, endpoint, body, token = tokens[owner]) => {
+  const request = async (owner, method, endpoint, body, token = tokens[owner], extraHeaders = {}) => {
     const server = app.listen(0, '127.0.0.1');
     let port;
     persistence.setActor(owner);
@@ -142,7 +142,7 @@ describe('financial ownership through the real compiled Express app', { concurre
       return await new Promise((resolve, reject) => {
         const req = http.request({ hostname: '127.0.0.1', port, method, path: endpoint,
           headers: { Connection: 'close', 'Content-Type': 'application/json',
-            ...(token === undefined ? {} : { Authorization: `Bearer ${token}` }) } }, res => {
+            ...(token === undefined ? {} : { Authorization: `Bearer ${token}` }), ...extraHeaders } }, res => {
           let text = '';
           res.setEncoding('utf8');
           res.on('data', chunk => { text += chunk; });
@@ -223,6 +223,29 @@ describe('financial ownership through the real compiled Express app', { concurre
             const body = ['POST', 'PATCH'].includes(method) ? bodies[kind] : undefined;
             assertJSON(await request(owners[0], method, endpoint, body, token), 401, { message: 'Необходима авторизация!' });
             assert.deepEqual(persistence.calls, []);
+          }
+        }
+      });
+
+      it('rejects signed invalid owner claims before GET/write persistence without fallback or mutation', async () => {
+        const before = persistence.records(kind);
+        const owner = owners[0];
+        const invalidPayloads = [
+          {}, { _id: null }, { _id: undefined }, { _id: '' },
+          { _id: 'a'.repeat(23) }, { _id: 'a'.repeat(25) }, { _id: 'g'.repeat(24) },
+          { _id: 123456 }, { _id: [owner] }, { _id: { $oid: owner } },
+          { _id: `${owner}\n` }, 'synthetic-string-payload', JSON.stringify([owner]),
+        ];
+        for (const payload of invalidPayloads) {
+          const token = jwt.sign(payload, 'super-secret-key', typeof payload === 'string' ? {} : { noTimestamp: true });
+          for (const method of ['GET', 'POST', 'PATCH', 'DELETE']) {
+            const id = fixtures(kind).find(row => row.owner === owner)._id;
+            const endpoint = `/${kind}${['PATCH', 'DELETE'].includes(method) ? `/${id}` : ''}?owner=${owner}&_id=${owner}`;
+            const body = ['POST', 'PATCH'].includes(method) ? { ...bodies[kind], owner, _id: owner } : undefined;
+            const response = await request(owner, method, endpoint, body, token, { 'x-owner-id': owner, 'x-user-id': owner });
+            assertJSON(response, 401, { message: 'Необходима авторизация!' });
+            assert.deepEqual(persistence.calls, []);
+            assert.deepEqual(persistence.records(kind), before);
           }
         }
       });

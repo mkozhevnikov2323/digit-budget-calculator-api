@@ -119,14 +119,15 @@ resolves these TypeScript modules from legacy JS consumers without bootstrap.
 adds only optional `Request.user?: unknown`: a verified JWT is not proof of
 validated owner identity or checked data ownership. The erased secret assertion
 preserves missing production JWT_SECRET behavior (verification fails); prefix,
-replace-based extraction, secret selection, payload assignment and both error
-messages/punctuation remain unchanged. Do not add claim validation in a migration.
+replace-based extraction, secret selection, valid-payload assignment and both
+error messages/punctuation remain unchanged. B3e explicitly adds owner-claim shape
+validation; do not combine it with broader authentication redesign.
 `tests/auth-contract.test.cjs` uses synthetic JWTs, real signing/verification,
 a fixed clock, serial environment-sensitive cases and restored NODE_ENV/JWT_SECRET.
 The previous 14 HTTP smoke and 21 error contracts remain unchanged.
 
-Known follow-ups require separate approval: legacy non-production secret selection
-and acceptance of signed strings/objects without a valid _id remain in place.
+Known follow-ups require separate approval: legacy non-production secret selection,
+account existence/status and token revocation. B3e rejects malformed owner claims.
 Future owner/security contracts must separately establish identity validation and
 data ownership. This migration is not a complete authentication security audit.
 `middlewares/cors.ts` uses RequestHandler and export =; `logger.ts` exports
@@ -175,7 +176,30 @@ Build first. Temporary cwd/logs, real Winston/fs resources, env/model mocks and
 ephemeral loopback listeners must be restored/closed. Never print auth headers.
 
 This is a mocked-model HTTP/controller contract baseline, not MongoDB integration
-or complete owner-isolation proof. It does not validate JWT _id shape/user
-existence, balance/users/reference ownership, date boundaries, money precision or
-logging redaction. These require separately approved security/integration work.
-Do not begin JWT hardening, real DB tests or B4 automatically.
+or complete owner-isolation proof. B3e checks claim shape but not user existence;
+balance/users/reference ownership, date boundaries, money precision and
+logging redaction remain outside these contracts. These require separately
+approved security/integration work.
+Do not begin further JWT changes, real DB tests or B4 automatically.
+
+## JWT owner claim validation (B3e)
+
+After real jwt.verify, auth.ts requires a non-null, non-array object with an own
+_id claim that is a primitive string of exactly 24 ASCII hex characters (either
+case). A local unknown-based guard checks both length and regex: JavaScript $
+can match before a trailing newline. No coercion, trimming, case normalization,
+request-field fallback or database lookup is allowed. Invalid claims use the
+existing AuthorizationError/401 message ending in ! before req.user assignment.
+Valid requests retain the original payload and other claims unchanged.
+Request.user remains optional unknown; a syntactically valid ID proves neither
+account existence/status, token non-revocation nor ownership of any resource.
+
+The original 22 JWT contracts retain their unrelated assertions; successful
+fixtures now use valid synthetic hex IDs, and the former string/missing-ID/
+object-ID acceptance cases intentionally expect rejection. Added real-JWT tests
+cover malformed claims, uppercase IDs and login-compatible Mongoose ObjectId
+serialization with seven-day expiry. HTTP ownership tests reject malformed
+signed claims on GET/writes before persistence, including body/query/header
+fallback attempts; the B3d persistence assertions and A/B tests stay intact.
+No login/signing/secret/algorithm, financial controller, schema or owner-filter
+change is authorized here. MongoDB integration needs separate review.

@@ -221,8 +221,9 @@ JWT_SECRET. Секреты и токены не логируются. CI ост�
 Добавлена только dev-зависимость типов `@types/jsonwebtoken`.
 
 Известные ограничения сохранены для отдельного security review: development
-секрет остаётся прежним, подписанные строки и объекты без корректного `_id`
-принимаются middleware. Успешная проверка JWT, валидация личности владельца и
+секрет остаётся прежним. Подписанные строки и объекты без корректного `_id`
+принимались на этапе B3b; B3e теперь отклоняет их (см. ниже). Успешная проверка
+JWT, валидация личности владельца и
 проверка владения данными — три разных гарантии. Будущие owner/security contract
 тесты должны проверять последние две отдельно. Это не полный аудит безопасности;
 authenticated MongoDB CRUD и owner isolation здесь не проверены. Контроллеры,
@@ -299,12 +300,47 @@ Authorization headers не выводятся в результатах, env и 
 
 Граница доказательства — HTTP/controller queries с mocked models. Реальная БД,
 Mongoose casting/validation, индексы и конкурентные операции не проверяются.
-JWT пока не валидирует форму _id и существование пользователя. Изоляция balance,
+B3e валидирует форму _id, но не существование пользователя. Изоляция balance,
 users, categories, sources, recipients и titles полностью не доказана.
 Date boundaries, monetary precision и logging redaction не менялись.
 Следующий security milestone требует отдельного согласования: контракт validated
 owner identity, затем изолированная MongoDB integration-проверка ownership.
-B4, JWT hardening и DB integration автоматически не начинаются.
+B4, дальнейшие изменения JWT и DB integration автоматически не начинаются.
+
+---
+
+## Проверка owner claim после JWT verify (B3e)
+
+`auth.ts` теперь пропускает запрос только после успешной проверки подписи и
+валидации payload: объект, не null/array, с собственным `_id` — примитивной строкой
+ровно из 24 ASCII hex-символов. Допускаются оба регистра, без преобразования,
+обрезки пробелов или нормализации. Проверяются длина и `/^[a-fA-F0-9]{24}$/`,
+чтобы завершающий перевод строки также отклонялся. Fallback из body/query/params/
+headers или прежнего req.user отсутствует, обращений к MongoDB нет.
+
+Некорректный подписанный claim теперь даёт прежний invalid-token ответ:
+`401 { "message": "Необходима авторизация!" }`, до присваивания req.user и
+финансовых операций. Missing/incorrect Bearer header сохраняет сообщение с точкой.
+Для корректного claim сохраняется весь исходный decoded payload, включая
+остальные поля. Глобальный `Request.user?: unknown` не меняется.
+
+Генерация `/signin`, secret selection, алгоритмы verify и срок семь дней сохранены.
+Изолированный тест с реальным Mongoose ObjectId и jwt.sign/verify подтверждает:
+ObjectId сериализуется в строку hex, совместимую с новым правилом. Реальные login
+или DB операции для этого не вызываются.
+
+В прежних JWT-контрактах заменены только невалидные successful fixtures и три
+старых ожидания acceptance для string/missing-ID/object-ID. Добавлены real-JWT
+negative cases, uppercase/login-compatible success и проверки неизменности
+req.user при отказе. Реальные HTTP ownership tests проверяют 401 для подписанных
+malformed claims на GET/writes, отсутствие persistence и мутаций фикстур, в том
+числе при наличии owner в body/query/headers. Прежние A/B assertions сохранены.
+
+Форма ID не доказывает существование/активность аккаунта, отсутствие отзыва токена
+или владение расходом/доходом. Не доказаны ownership других доменов, реальная
+MongoDB integration и полная logging redaction. Следующий отдельно согласуемый
+milestone — изолированная MongoDB ownership integration и контракт существования
+владельца. B4 и следующий security-этап автоматически не начинаются.
 
 ---
 
