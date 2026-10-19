@@ -1,3 +1,5 @@
+import type { RequestHandler } from 'express';
+
 const allowedCors = [
   'https://digit-budget-calculator.onrender.com',
   'http://localhost:5173',
@@ -5,13 +7,14 @@ const allowedCors = [
 
 const { DEFAULT_ALLOWED_METHODS } = process.env;
 
-module.exports = (req, res, next) => {
+const cors: RequestHandler = (req, res, next) => {
   const { origin } = req.headers;
   const { method } = req;
 
   const requestHeaders = req.headers['access-control-request-headers'];
 
-  if (allowedCors.includes(origin)) {
+  // Erased assertion only: undefined still fails includes without normalization.
+  if (allowedCors.includes(origin as string)) {
     res.header('Access-Control-Allow-Origin', origin);
   }
 
@@ -23,3 +26,5 @@ module.exports = (req, res, next) => {
 
   return next();
 };
+
+export = cors;

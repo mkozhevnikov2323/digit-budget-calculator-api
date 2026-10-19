@@ -7,7 +7,8 @@
     "dev": "nodemon --watch . --ext ts,js,json --ignore dist/ --exec tsx server.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
-    "test:smoke": "node --test tests/app-smoke.test.cjs tests/error-contract.test.cjs tests/auth-contract.test.cjs"
+    "test": "npm run test:smoke",
+    "test:smoke": "node --test tests/app-smoke.test.cjs tests/error-contract.test.cjs tests/auth-contract.test.cjs tests/cors-contract.test.cjs tests/logger-contract.test.cjs"
   },
   "repository": {
     "type": "git",

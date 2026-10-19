@@ -33,8 +33,8 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Compiled Express smoke, error and auth contract tests
-        run: npm run test:smoke
+      - name: Compiled Express smoke and middleware/error contract tests
+        run: npm run test
 
       - name: Verify compiled artifacts without executing bootstrap
         run: |
@@ -45,3 +45,5 @@ jobs:
           test -f dist/errors/notFoundError.js
           test -f dist/errors/globalErrorHandler.js
           test -f dist/middlewares/auth.js
+          test -f dist/middlewares/cors.js
+          test -f dist/middlewares/logger.js

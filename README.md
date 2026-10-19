@@ -130,7 +130,7 @@ JSON/urlencoded parsing и CORS. Обращения к MongoDB и запросы
 
 CI на Node.js 22 выполняет `npm ci`, typecheck, build, smoke-тесты и проверку
 `dist/app.js` / `dist/server.js`. Compiled bootstrap не запускается.
-Контроллеры, маршруты, модели и остальные middleware остаются JavaScript;
+Контроллеры, маршруты и модели остаются JavaScript;
 JWT middleware переведён в `auth.ts` на этапе B3b,
 слой errors — на TypeScript в B3a (см. ниже).
 `allowJs: true` и `checkJs: false` сохранены. Authenticated CRUD, реальная
@@ -190,8 +190,8 @@ HTTP-контракты или схемы БД.
 CI сохраняет порядок install → typecheck → build → test:smoke → artifacts.
 Сборка перед тестами обязательна; тесты не запускают bootstrap или MongoDB.
 
-Контроллеры, маршруты, модели и остальные middleware остаются JavaScript
-с `checkJs: false`; JWT/auth мигрирован отдельно в B3b.
+Контроллеры, маршруты и модели остаются JavaScript с `checkJs: false`;
+JWT/auth мигрирован в B3b, CORS/logger — в B3c.
 Authenticated CRUD и реальные операции MongoDB не проверены.
 B3b описан ниже; последующие этапы требуют отдельного архитектурного review.
 
@@ -226,8 +226,54 @@ JWT_SECRET. Секреты и токены не логируются. CI ост�
 проверка владения данными — три разных гарантии. Будущие owner/security contract
 тесты должны проверять последние две отдельно. Это не полный аудит безопасности;
 authenticated MongoDB CRUD и owner isolation здесь не проверены. Контроллеры,
-маршруты, модели и остальные middleware остаются unchecked JavaScript.
-B3c/B4 не начинаются автоматически; требуется отдельное архитектурное review.
+маршруты и модели остаются unchecked JavaScript; остальные middleware мигрированы
+в B3c (см. ниже). B4 требует отдельного архитектурного review.
+
+---
+
+## Общие middleware на TypeScript (B3c)
+
+`middlewares/cors.ts` и `middlewares/logger.ts` заменяют исходные JS без
+параллельных копий. Все shared middleware теперь strict TypeScript.
+CORS экспортирует функцию через `export =`, logger — прежний объект
+`{ requestLogger, errorLogger }`; CommonJS и tsx не требуют `.default`.
+В `app.ts` named import заменён на `import = require` для совместимости с
+типизированным объектом `export =`; обращения к свойствам и порядок не меняются.
+Порядок parsers → request logger → CORS → routes → error logger → Celebrate →
+global error handler сохранён. Типы Winston и express-winston встроены в пакеты;
+новых зависимостей нет. Настройки компилятора и dev runner не менялись.
+
+CORS сохраняет ровно два origin: `https://digit-budget-calculator.onrender.com`
+и `http://localhost:5173`, без wildcard/нормализации/credentials headers.
+DEFAULT_ALLOWED_METHODS читается при импорте. OPTIONS завершается до маршрутов;
+неизвестный origin не получает allow-origin. При отсутствующих значениях
+methods/request headers Express по-прежнему записывает строку `"undefined"`;
+миграция не добавляет defaults или валидацию. Это отдельный вопрос конфигурации.
+
+Логгеры создаются при импорте и используют прежние File transports `request.log`
+и `error.log`, формат JSON и неизменённые express-winston options.
+Security follow-up: defaults express-winston включают request headers/url/query
+при пустом header blacklist. Возможна запись чувствительных заголовков/query и
+метаданных ошибок; политику redaction необходимо согласовать отдельно. Миграция
+не расширяет и не меняет логирование, не является полным аудитом его безопасности.
+
+После `npm run build` запускайте `npm run test`: это alias сохранённой команды
+`test:smoke` с явными пятью файлами. Прежние 57 тестов дополнены 14 CORS и 6 logging-тестами:
+`tests/cors-contract.test.cjs` (точный allowlist, preflight, undefined headers,
+module-time env и изоляция require cache) и `tests/logger-contract.test.cjs`
+(CommonJS, реальные File transports, JSON-записи, делегирование и cleanup).
+Логи создаются только во временном каталоге и удаляются после закрытия настоящих
+файловых потоков. БД, сеть и listeners заблокированы в focused logger tests;
+реальное приложение проверяется прежними isolated HTTP smoke tests.
+CI Node.js 22: npm ci → typecheck → build → test → artifact verification,
+включая `dist/middlewares/cors.js` и `dist/middlewares/logger.js`.
+
+Контроллеры, маршруты и модели остаются JavaScript с `checkJs: false`.
+Проверка подписи JWT недостаточна для подтверждения валидной личности владельца.
+До live multiuser financial classification нужны отдельные contract/security
+проверки backend authorization и ownership. Owner isolation и authenticated
+MongoDB CRUD здесь не проверены. B4 и усиление JWT/ownership не начинаются
+автоматически; требуется отдельное архитектурное review.
 
 ---
 
@@ -237,7 +283,7 @@ B3c/B4 не начинаются автоматически; требуется 
 .
 ├── controllers # Логика обработки роутов
 ├── errors # TypeScript-классы ошибок и глобальный обработчик
-├── middlewares # Авторизация, CORS, логгер
+├── middlewares # TypeScript: авторизация, CORS, логгер
 ├── models # Схемы данных Mongoose
 ├── routes # Маршруты API
 ├── app.ts # Конфигурация Express без подключения к БД и listener
@@ -273,7 +319,7 @@ B3c/B4 не начинаются автоматически; требуется 
 - Сущности разделены на дефолтные и пользовательские по разным моделям (`expenseCategoryDefault.js`, `expenseCategoryUser.js` и т.д.)
 - Реализована строгая валидация входящих данных (`celebrate` + `joi`)
 - Централизованный обработчик ошибок (`globalErrorHandler`)
-- Все защищённые эндпоинты требуют JWT авторизации (см. `middlewares/auth.js`)
+- Все защищённые эндпоинты требуют JWT авторизации (см. `middlewares/auth.ts`)
 - Запросы и ошибки логируются в файлы, а не только в консоль (`express-winston`)
 - Проект структурирован по feature-style (контроллеры, модели и маршруты разделены по сущностям)
 
@@ -283,7 +329,7 @@ B3c/B4 не начинаются автоматически; требуется 
 
 - Используйте сложные значения `JWT_SECRET` и храните их вне исходного кода (например, в переменных окружения или vault)
 - Подключайте MongoDB из безопасных подсетей
-- Настраивайте CORS (см. `middlewares/cors.js`) согласно вашим фронтам
+- Настраивайте CORS (см. `middlewares/cors.ts`) согласно вашим фронтам
 - Логируйте ошибки в централизованный сервис (Sentry, Elastic и т.д.)
 - Не забудьте убрать dev-зависимости в production-сборке
 
