@@ -16,8 +16,9 @@ frontend loan-related features establish a separate backend loan domain.
 
 - Node.js, Express 5, MongoDB and Mongoose 8.
 - JWT authentication and Celebrate/Joi validation.
-- JavaScript/CommonJS (`require` / `module.exports`), with gradual TypeScript
-  adoption. TypeScript is a migration target, not a completed conversion.
+- CommonJS with strict TypeScript entry points (`app.ts`, `server.ts`).
+  Controllers, routes, models, middleware and errors remain legacy JavaScript;
+  the incremental migration is not complete.
 - Preserve `controllers/`, `routes/`, `models/`, `middlewares/` and `errors/`
   unless a refactor is explicitly approved.
 - Prefer small incremental improvements over rewrites. Do not introduce NestJS,
@@ -56,12 +57,14 @@ These are policies for future work, not permission to refactor existing modules.
   verification scope. Report actual results, missing coverage and unverified
   behavior; never claim an unexecuted check passed.
 - Keep test-only work separate from unrelated production refactoring.
-- Run `npm run test:smoke` for the isolated B2a Express checks using Node's
-  built-in test runner. They use real middleware, a temporary log directory and
+- Run `npm run build` before `npm run test:smoke`: the isolated Express checks
+  use compiled `dist/app.js` and Node's built-in test runner. They use real
+  middleware, a temporary log directory and
   ephemeral loopback listeners, with database access blocked. Broader contract,
   authenticated ownership and financial tests remain future work.
-- `server.js` connects to MongoDB and listens as an import side effect. Do not
-  import or execute it in compiler configuration or static build checks.
+- `server.ts` and compiled `dist/server.js` connect to MongoDB and listen as an
+  import side effect. Never import/execute either in automated checks. Keep
+  dotenv initialization before application evaluation in compiled CommonJS.
 
 ## Security and financial data
 
@@ -84,13 +87,19 @@ These are policies for future work, not permission to refactor existing modules.
 
 ## Current development workflow
 
-The project currently runs locally. Preserve `npm run dev` as
-`nodemon server.js` during this migration stage. `app.js` configures and exports
-Express without connecting to MongoDB or listening; `server.js` remains the
-dotenv/database/listener bootstrap. `npm run typecheck` emits nothing and
-`npm run build` outputs only into ignored `dist/`.
-Run CI on Node.js 22. Compiler checks do not prove runtime correctness.
+The project currently runs locally. `npm run dev` uses existing nodemon to run
+`tsx server.ts`, watching TS/JS/JSON while ignoring `dist/` and the default
+node_modules/.git exclusions. Do not start the full bootstrap for verification.
+`app.ts` exports the Express instance via `export =`; legacy JS imports remain
+unchecked migration boundaries. `server.ts` preserves optional environment
+values and the existing non-awaited MongoDB connection before listen. A narrow
+URI assertion is erased; it does not validate or replace a missing runtime URI.
 
-B2b will separately review TypeScript entry points and TypeScript development
-execution. The application remains JavaScript/CommonJS in B2a. Do not assume any
-production deployment configuration or authorization to deploy.
+`npm run typecheck` emits nothing; `npm run build` outputs CommonJS only into
+ignored `dist/`. Package main points to `dist/server.js` because the source JS
+entry point was removed; this is not a deployment/start command. CI on Node.js 22
+runs install, typecheck, build, compiled-app smoke tests and artifact checks.
+Compilation does not prove legacy JavaScript type safety or DB bootstrap behavior.
+
+The next step (shared errors/middleware/auth typing) needs separate review; do
+not begin it automatically. No production deployment is configured or authorized.
