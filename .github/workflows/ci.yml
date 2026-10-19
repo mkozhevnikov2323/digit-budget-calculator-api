@@ -27,6 +27,9 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Isolated Express smoke tests
+        run: npm run test:smoke
+
       - name: Typecheck
         run: npm run typecheck
 

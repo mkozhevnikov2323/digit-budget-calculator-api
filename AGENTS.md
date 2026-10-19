@@ -56,8 +56,10 @@ These are policies for future work, not permission to refactor existing modules.
   verification scope. Report actual results, missing coverage and unverified
   behavior; never claim an unexecuted check passed.
 - Keep test-only work separate from unrelated production refactoring.
-- B1 provides compiler checks, not a test framework or test suite. Do not invent
-  a passing test command. Contract/security tests require a subsequent stage.
+- Run `npm run test:smoke` for the isolated B2a Express checks using Node's
+  built-in test runner. They use real middleware, a temporary log directory and
+  ephemeral loopback listeners, with database access blocked. Broader contract,
+  authenticated ownership and financial tests remain future work.
 - `server.js` connects to MongoDB and listens as an import side effect. Do not
   import or execute it in compiler configuration or static build checks.
 
@@ -83,10 +85,12 @@ These are policies for future work, not permission to refactor existing modules.
 ## Current development workflow
 
 The project currently runs locally. Preserve `npm run dev` as
-`nodemon server.js` throughout B1. B1 adds `npm run typecheck` (no emit) and
-`npm run build` (output only in ignored `dist/`) without changing the entry point.
+`nodemon server.js` during this migration stage. `app.js` configures and exports
+Express without connecting to MongoDB or listening; `server.js` remains the
+dotenv/database/listener bootstrap. `npm run typecheck` emits nothing and
+`npm run build` outputs only into ignored `dist/`.
 Run CI on Node.js 22. Compiler checks do not prove runtime correctness.
 
-App/server separation, a TypeScript entry point, TypeScript development execution
-and isolated smoke testing belong to separately reviewed B2 work. Do not assume
-any production deployment configuration or authorization to deploy.
+B2b will separately review TypeScript entry points and TypeScript development
+execution. The application remains JavaScript/CommonJS in B2a. Do not assume any
+production deployment configuration or authorization to deploy.
