@@ -130,7 +130,8 @@ JSON/urlencoded parsing и CORS. Обращения к MongoDB и запросы
 
 CI на Node.js 22 выполняет `npm ci`, typecheck, build, smoke-тесты и проверку
 `dist/app.js` / `dist/server.js`. Compiled bootstrap не запускается.
-Контроллеры, маршруты, модели, middleware и errors остаются JavaScript;
+Контроллеры, маршруты, модели и middleware остаются JavaScript;
+слой errors переведён на TypeScript в B3a (см. ниже).
 `allowJs: true` и `checkJs: false` сохранены. Authenticated CRUD, реальная
 авторизация владельцев и DB bootstrap этими smoke-тестами не проверены.
 
@@ -161,8 +162,36 @@ nodemon --watch . --ext ts,js,json --ignore dist/ --exec tsx server.ts
 `server.js` удалён. Перед использованием compiled entry нужна сборка; отдельный
 production start script или deployment не добавляются.
 
-Следующий отдельно рассматриваемый этап — типизация общих errors/middleware/auth.
-B2b не меняет финансовые правила, JWT, owner checks, HTTP-контракты или схемы БД.
+Слой errors мигрирован отдельно в B3a; типизация middleware/auth требует
+отдельного рассмотрения B3b. B2b не меняет финансовые правила, JWT, owner checks,
+HTTP-контракты или схемы БД.
+
+---
+
+## Строгий TypeScript для ошибок (B3a)
+
+Четыре модуля `errors/authorizationError.ts`, `errors/forbiddenError.ts`,
+`errors/notFoundError.ts` и `errors/globalErrorHandler.ts` заменяют исходные JS
+без параллельных копий. `export =` сохраняет прямой CommonJS `require(...)`:
+классы создаются без `.default`, пути legacy-потребителей не меняются.
+Сборка создаёт соответствующие `dist/errors/*.js`; tsx разрешает исходные TS
+из legacy JS в режиме разработки без изменения call sites.
+
+Статусы 401/403/404, сообщения, `headersSent → next(err)` и прежняя семантика
+`statusCode || 500` сохранены. Для 500 возвращается прежнее общее сообщение.
+Узкая type assertion метаданных не требует `instanceof Error`, стирается при
+сборке и не добавляет нормализацию, проверку статуса или защиту от null/undefined.
+Порядок Express/Celebrate middleware не меняется.
+
+После `npm run build` команда `npm run test:smoke` выполняет оба файла:
+`tests/app-smoke.test.cjs` (прежние 14 HTTP smoke-тестов) и
+`tests/error-contract.test.cjs` (контракты compiled классов и обработчика).
+CI сохраняет порядок install → typecheck → build → test:smoke → artifacts.
+Сборка перед тестами обязательна; тесты не запускают bootstrap или MongoDB.
+
+Контроллеры, маршруты, модели и middleware, включая JWT/auth, остаются JavaScript
+с `checkJs: false`. Authenticated CRUD и реальные операции MongoDB не проверены.
+B3b требует отдельного архитектурного review и автоматически не начинается.
 
 ---
 
@@ -171,7 +200,7 @@ B2b не меняет финансовые правила, JWT, owner checks, HT
 ```
 .
 ├── controllers # Логика обработки роутов
-├── errors # Пользовательские и глобальные ошибки
+├── errors # TypeScript-классы ошибок и глобальный обработчик
 ├── middlewares # Авторизация, CORS, логгер
 ├── models # Схемы данных Mongoose
 ├── routes # Маршруты API

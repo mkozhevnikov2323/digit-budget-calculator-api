@@ -33,8 +33,14 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Isolated compiled Express smoke tests
+      - name: Compiled Express smoke and error contract tests
         run: npm run test:smoke
 
-      - name: Verify application and server artifacts without executing bootstrap
-        run: test -f dist/app.js && test -f dist/server.js
+      - name: Verify compiled artifacts without executing bootstrap
+        run: |
+          test -f dist/app.js
+          test -f dist/server.js
+          test -f dist/errors/authorizationError.js
+          test -f dist/errors/forbiddenError.js
+          test -f dist/errors/notFoundError.js
+          test -f dist/errors/globalErrorHandler.js
