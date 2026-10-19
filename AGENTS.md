@@ -16,8 +16,9 @@ frontend loan-related features establish a separate backend loan domain.
 
 - Node.js, Express 5, MongoDB and Mongoose 8.
 - JWT authentication and Celebrate/Joi validation.
-- CommonJS with strict TypeScript entry points (`app.ts`, `server.ts`).
-  Controllers, routes, models, middleware and errors remain legacy JavaScript;
+- CommonJS with strict TypeScript entry points (`app.ts`, `server.ts`) and
+  error modules (`errors/*.ts`). Controllers, routes, models and middleware
+  remain legacy JavaScript;
   the incremental migration is not complete.
 - Preserve `controllers/`, `routes/`, `models/`, `middlewares/` and `errors/`
   unless a refactor is explicitly approved.
@@ -57,7 +58,8 @@ These are policies for future work, not permission to refactor existing modules.
   verification scope. Report actual results, missing coverage and unverified
   behavior; never claim an unexecuted check passed.
 - Keep test-only work separate from unrelated production refactoring.
-- Run `npm run build` before `npm run test:smoke`: the isolated Express checks
+- Run `npm run build` before `npm run test:smoke`: error contract tests load
+  compiled `dist/errors/*.js` and the existing 14 isolated Express checks
   use compiled `dist/app.js` and Node's built-in test runner. They use real
   middleware, a temporary log directory and
   ephemeral loopback listeners, with database access blocked. Broader contract,
@@ -101,5 +103,15 @@ entry point was removed; this is not a deployment/start command. CI on Node.js 2
 runs install, typecheck, build, compiled-app smoke tests and artifact checks.
 Compilation does not prove legacy JavaScript type safety or DB bootstrap behavior.
 
-The next step (shared errors/middleware/auth typing) needs separate review; do
-not begin it automatically. No production deployment is configured or authorized.
+`errors/authorizationError.ts`, `forbiddenError.ts`, `notFoundError.ts` and
+`globalErrorHandler.ts` use strict TypeScript and `export =` so legacy CommonJS
+consumers receive classes/functions directly, without `.default`. Preserve the
+handler's legacy metadata semantics (`statusCode || 500`, original messages and
+headersSent delegation); the narrow erased metadata assertion adds no runtime
+validation. `tests/error-contract.test.cjs` covers compiled classes and handler
+contracts alongside the unchanged HTTP smoke tests. The tsx CJS loader also
+resolves these TypeScript modules from legacy JS consumers without bootstrap.
+
+B3b (authentication middleware/context typing) needs separate architectural
+review; do not begin it automatically. Controllers, routes, models and middleware
+remain unchecked JavaScript. No production deployment is configured or authorized.

@@ -1,8 +1,10 @@
 class AuthorizationError extends Error {
-  constructor(message) {
+  declare statusCode: number;
+
+  constructor(message: string) {
     super(message);
     this.statusCode = 401;
   }
 }
 
-module.exports = AuthorizationError;
+export = AuthorizationError;
