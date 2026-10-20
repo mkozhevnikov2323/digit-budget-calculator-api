@@ -419,3 +419,98 @@ _Maksim Olhovsky (mkozhevnikov23@gmail.com)_
 [GitHub](https://github.com/mkozhevnikov2323)
 
 ---
+
+## Реальная MongoDB-проверка владения (B3f)
+
+B3f проверяет цепочку HTTP → compiled Express → Celebrate → JWT → финансовые
+контроллеры → реальные Mongoose-модели → MongoDB. Прежние 144 database-free
+контракта, включая B3d с mocked persistence, остаются в `npm run test` без
+изменения команды. Новая команда выполняет только integration-сценарии и их
+проверки безопасности конфигурации:
+
+```sh
+npm ci
+npm run build
+MONGODB_INTEGRATION_TEST=1 MONGODB_TEST_BASE_URI=mongodb://127.0.0.1:27017 npm run test:integration
+```
+
+Предварительная сборка обязательна: импортируется `dist/app.js`, а не bootstrap.
+Не запускайте команду на порту существующего application/development MongoDB.
+Нужен отдельный временный standalone MongoDB, принадлежащий этому запуску.
+У владельца проекта нет необходимости запускать MongoDB на личном компьютере:
+проверка выполняется отдельным GitHub Actions job `mongodb-integration` на Node 22.
+Быстрый job `verify` по-прежнему не зависит от БД и проверяет typecheck, build,
+144 контракта и compiled artifacts.
+
+CI использует официальный **MongoDB 7.0.45**, закреплённый manifest digest
+`sha256:c53852c00c23ca9f23fc39690350ffa9a80e3642fe8f96879726d8da0abe80a7`.
+Версия подтверждена через `mongod --version`; она совместима с существующим
+Mongoose 8. Образ и bounded `mongosh` ping health-check заданы в workflow.
+Порт опубликован только на runner loopback; `/data/db` и `/data/configdb` находятся
+в tmpfs без persistent volumes. Контейнер ограничен временем job и удаляется
+GitHub Actions; MongoDB container logging отключён. Atlas, внешняя БД и secrets
+не требуются.
+
+Защиты находятся только в test helper:
+
+- Обязателен ровно `MONGODB_INTEGRATION_TEST=1` и точный разрешённый base URI выше.
+  Отсутствие конфигурации и недоступная БД приводят к ошибке, не к skip.
+- Другие hosts/ports, credentials, SRV, paths, query parameters, пробелы и варианты
+  записи отклоняются до подключения. Application URL не используется как fallback;
+  совпадение с `DATA_BASE_URL` или `DATA_BASE_URL_LOCAL` также запрещено.
+- Имя `budget_ownership_it_<32 random hex>` создаётся через `crypto.randomBytes`.
+  `dbName` передаётся отдельно; невозможно выбрать `budgetdb` или другую старую БД.
+- Перед reset фикстур и перед drop сверяются connection name и driver database
+  name с точным именем, захваченным текущим запуском. Cleanup проверяет отсутствие
+  коллекций после drop и закрывает соединение. Другие БД не перечисляются и не очищаются.
+- Проверка имени защищает cleanup, но URI allowlist сам по себе не удостоверяет,
+  кто обслуживает локальный порт: поэтому нужен именно выделенный test container.
+- Listener создаётся через `app.listen(0, '127.0.0.1')`. Bootstrap запрещён при
+  импорте; `.env` из репозитория не загружается, cwd временный.
+- Test-owned Winston loggers временно silent, чтобы JWT, headers и тела запросов
+  не попадали в файлы. Реальные File transports закрываются; пустые логи и каталог
+  удаляются, cwd/env восстанавливаются. Production logging policy не изменена.
+
+Фикстуры — по три расхода и дохода для двух вымышленных ObjectId владельцев,
+с общими labels, разными суммами, датами и createdAt. Они создаются настоящим
+`Model.create` заново перед каждым сценарием. Проверяются обе стороны изоляции,
+сортировка, count/pagination/noPagination, фильтры, CRUD, JWT/Celebrate отказы и
+реальное persisted state. Чужие PATCH/DELETE должны сохранить BSON обеих
+коллекций побайтно, включая timestamps. После suite cleanup подтверждается в TAP.
+
+Это не полный security audit. Не доказаны существование/статус аккаунта, отзыв JWT,
+ownership других доменов, конкурентные финансовые обновления, полная logging
+redaction, все date/timezone boundaries, денежная точность и frontend end-to-end.
+Фикстуры используют UTC и даты вдали от границ локального месяца; текущая
+month/year семантика не изменяется. Контроллеры, HTTP API, JWT, схемы и owner filters
+не меняются. Следующие security/migration задачи и merge требуют отдельного review.
+
+### Защита от false-green test runner (B3f.1)
+
+В исходном B3f CI Node.js 22 сообщал `105 pass / 0 fail`, но родительский suite
+завершался ошибкой hook: suite context не поддерживает `context.diagnostic()`.
+Этот вызов заменён обычным статическим сообщением после неизменённых assertions
+cleanup. Прежний зелёный статус run 39386430073 не доказывал успешный suite.
+
+`npm run test:integration` теперь использует `tests/run-integration-tests.cjs`:
+встроенный `node:test.run` последовательно выполняет те же два файла с прежним
+timeout, а встроенный TAP reporter сохраняет полный вывод. Любое событие
+`test:fail`, включая parent suite или hook, устанавливает ненулевой exit code,
+независимо от ошибочного итогового счётчика Node 22. Ошибка самого runner тоже
+даёт ненулевой результат. Диагностические строки не разбираются как TAP records.
+
+`npm run test:integration:runner` проверяет этот механизм отдельно от 105
+integration-сценариев и 144 прежних database-free тестов. Пять проверок создают и
+удаляют временные изолированные файлы: отказ after-hook при успешном child,
+before-hook, обычный failing test, сбой файла до регистрации тестов и успешный
+тест с failure-looking диагностикой. Намеренно сломанные fixtures не входят в
+обычную integration suite. На Node 22 воспроизводится raw exit=0 для сломанного
+after-hook, тогда как общий runner возвращает 1. CI выполняет эту самопроверку
+перед реальным MongoDB suite; локальная команда и CI имеют одинаковые failure
+semantics. Cleanup assertions, модели, JWT и финансовые проверки не ослаблены.
+
+Ожидаемое неблокирующее предупреждение Docker при завершении CI:
+`configured logging driver does not support reading`. Оно связано с отключённым
+container logging (`--log-driver none`), когда Actions пытается получить логи
+сервиса. Настройка сохранена; сетевой доступ, secrets и логирование финансовых
+записей ради подавления предупреждения не расширяются.
