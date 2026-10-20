@@ -281,6 +281,118 @@ describe('real MongoDB financial ownership through compiled Express', { concurre
           assert.deepEqual(await snapshot(), before);
         }
       });
+      it('persists bounded numeric fixtures as numbers and returns their exact values', async () => {
+        for (const [index, amount] of [0, 0.01, 0.1, 12.34].entries()) {
+          const comment = `Synthetic S1.4 decimal ${index}`;
+          const response = await request(owners[0], 'POST', `/${kind}`, { ...bodies[kind], amount, comment });
+          assert.equal(response.status, 201); assert.equal(response.text, '');
+          const persisted = await models[kind].collection.findOne({ comment });
+          assert.equal(typeof persisted.amount, 'number');
+          assert.equal(persisted.amount, amount);
+          assert.equal(String(persisted.owner), owners[0]);
+          const read = await request(owners[0], 'GET', `/${kind}?noPagination=true`);
+          assert.equal(read.status, 200);
+          const returned = read.body[kind].find(row => row._id === String(persisted._id));
+          assert.equal(returned.amount, amount);
+          assert.equal(read.body.total, await models[kind].countDocuments({ owner: objectId(owners[0]) }));
+        }
+      });
+      it('preserves optional fields, trimming, version defaults, timestamps and JSON shape', async () => {
+        const body = { ...bodies[kind], comment: undefined,
+          ...(kind === 'expenses' ? { title: '  Fictional title  ', recipient: '  Fictional recipient  ',
+            category: '  Fictional category  ' } : { source: '  Fictional source  ' }) };
+        const before = new Date();
+        assert.equal((await request(owners[0], 'POST', `/${kind}`, body)).status, 201);
+        const persisted = await models[kind].collection.findOne({ comment: { $exists: false } });
+        assert.ok(persisted._id instanceof mongoose.Types.ObjectId);
+        assert.ok(persisted.owner instanceof mongoose.Types.ObjectId);
+        assert.equal(persisted.__v, 0);
+        assert.equal(Object.hasOwn(persisted, 'comment'), false);
+        assert.ok(persisted.date instanceof Date);
+        assert.ok(persisted.createdAt instanceof Date);
+        assert.ok(persisted.updatedAt instanceof Date);
+        assert.ok(persisted.createdAt >= before && persisted.createdAt <= new Date());
+        assert.deepEqual(persisted.updatedAt, persisted.createdAt);
+        if (kind === 'expenses') {
+          for (const field of ['title', 'recipient', 'category']) assert.equal(persisted[field], body[field].trim());
+        } else assert.equal(persisted.source, body.source); // Income has no trim option.
+        const response = await request(owners[0], 'GET', `/${kind}?noPagination=true`);
+        const returned = response.body[kind].find(row => row._id === String(persisted._id));
+        assert.deepEqual(returned, wire(persisted));
+        assert.deepEqual(Object.keys(returned).sort(), [
+          '_id', '__v', 'amount', 'date', 'owner', 'createdAt', 'updatedAt',
+          ...(kind === 'expenses' ? ['title', 'recipient', 'category'] : ['source']),
+        ].sort());
+      });
+      it('persists offset/date-only/epoch coercion and keeps createdAt/version on updates', async () => {
+        const id = fixtureId(kind, owners[0], 0);
+        const original = await raw(kind, id);
+        for (const [date, iso] of [
+          ['2026-01-15T12:00:00+03:00', '2026-01-15T09:00:00.000Z'],
+          ['2026-01-15', '2026-01-15T00:00:00.000Z'], [0, '1970-01-01T00:00:00.000Z'],
+        ]) {
+          const response = await request(owners[0], 'PATCH', `/${kind}/${id}`, { date, amount: '0.25' });
+          const persisted = await raw(kind, id);
+          json(response, 200, persisted);
+          assert.equal(persisted.amount, 0.25);
+          assert.equal(persisted.date.toISOString(), iso);
+          assert.equal(String(persisted.owner), owners[0]);
+          assert.deepEqual(persisted.createdAt, original.createdAt);
+          assert.equal(persisted.__v, original.__v);
+          assert.ok(persisted.updatedAt >= original.updatedAt);
+        }
+      });
+      it('real update validators and query casting reject invalid values with BSON unchanged', async () => {
+        const before = await snapshot();
+        const filter = { _id: objectId(fixtureId(kind, owners[0], 0)), owner: objectId(owners[0]) };
+        await assert.rejects(models[kind].findOneAndUpdate(filter, { amount: -0.01 }, { new: true, runValidators: true }),
+          error => error.name === 'ValidationError' && error.errors.amount.kind === 'min');
+        assert.deepEqual(await snapshot(), before);
+        await assert.rejects(models[kind].findOneAndUpdate(filter, { date: 'not-a-date' }, { new: true, runValidators: true }),
+          error => error.name === 'CastError' && error.path === 'date');
+        assert.deepEqual(await snapshot(), before);
+        await assert.rejects(models[kind].findOne({ _id: 'not-an-object-id', owner: objectId(owners[0]) }),
+          error => error.name === 'CastError' && error.path === '_id');
+        assert.deepEqual(await snapshot(), before);
+      });
+      it('rejects protected metadata, dotted prototype keys and update operators before persistence', async () => {
+        const before = await snapshot();
+        for (const [key, value] of [
+          ['_id', fixtureId(kind, owners[1], 0)], ['__v', 99],
+          ['createdAt', '2020-01-01'], ['updatedAt', '2020-01-01'],
+          ['$set', { owner: owners[1], amount: 0 }], ['$unset', { owner: 1 }],
+          ['$rename', { owner: 'comment' }], ['__proto__.s14Fixture', 'fictional'],
+          ['constructor.prototype.s14Fixture', 'fictional'],
+        ]) {
+          for (const method of ['POST', 'PATCH']) {
+            const endpoint = `/${kind}${method === 'PATCH' ? `/${fixtureId(kind, owners[0], 0)}` : ''}`;
+            const response = await request(owners[0], method, endpoint, { ...bodies[kind], [key]: value });
+            json(response, 400, { statusCode: 400, error: 'Bad Request', message: 'Validation failed',
+              validation: { body: { source: 'body', keys: [key], message: `"${key}" is not allowed` } } });
+            assert.deepEqual(await snapshot(), before);
+          }
+        }
+        assert.equal(Object.hasOwn(Object.prototype, '$fullPath'), false);
+        assert.equal(Object.hasOwn(Object.prototype, '$parentSchemaDocArray'), false);
+        assert.equal(Object.hasOwn(Object.prototype, 's14Fixture'), false);
+      });
+      it('operator-like query keys are rejected and bounded regex remains owner-scoped', async () => {
+        const before = await snapshot();
+        const field = kind === 'expenses' ? 'title' : 'source';
+        for (const key of ['$where', 'owner[$ne]', `${field}[$ne]`]) {
+          const query = new URLSearchParams({ [key]: 'fictional' });
+          const response = await request(owners[0], 'GET', `/${kind}?${query}`);
+          json(response, 400, { statusCode: 400, error: 'Bad Request', message: 'Validation failed',
+            validation: { query: { source: 'query', keys: [key], message: `"${key}" is not allowed` } } });
+          assert.deepEqual(await snapshot(), before);
+        }
+        // Controllers deliberately support regex strings, not raw MongoDB
+        // filters. This tiny pattern must still retain owner and count scope.
+        for (const owner of owners) {
+          await read(kind, owner, `${field}=.*&page=2&limit=1`, [0], 2, 1, 3);
+        }
+        assert.deepEqual(await snapshot(), before);
+      });
     });
   }
 });
