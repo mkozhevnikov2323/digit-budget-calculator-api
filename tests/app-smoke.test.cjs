@@ -171,7 +171,9 @@ describe('isolated Express app (no server bootstrap or database)', { concurrency
     // qs tolerates invalid percent escapes; the existing rejection is Joi's
     // email validation, not a newly invented parser error contract.
     ['malformed percent encoding', 'email=%E0%A4%A', 'email', '"email" must be a valid email'],
-    ['unclosed bracket', 'email[=fictional%40example.com', 'email', '"email" is required'],
+    // qs 6.16 treats this malformed key as an object. The reviewed contract
+    // keeps HTTP 400 and the Celebrate response shape with this type error.
+    ['unclosed bracket', 'email[=fictional%40example.com', 'email', '"email" must be a string'],
   ]) {
     it(`preserves bounded URL-encoded ${label} validation`, async () => {
       assertValidation(await request('POST', '/signin', formHeaders, body), field, message);
