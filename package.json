@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
     "test": "npm run test:smoke",
+    "test:integration": "node --test --test-concurrency=1 --test-timeout=120000 tests/mongodb-integration-safety.test.cjs tests/financial-ownership.integration.test.cjs",
     "test:smoke": "node --test tests/app-smoke.test.cjs tests/error-contract.test.cjs tests/auth-contract.test.cjs tests/cors-contract.test.cjs tests/logger-contract.test.cjs tests/financial-ownership-contract.test.cjs"
   },
   "repository": {

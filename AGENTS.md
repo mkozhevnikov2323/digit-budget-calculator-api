@@ -203,3 +203,36 @@ signed claims on GET/writes before persistence, including body/query/header
 fallback attempts; the B3d persistence assertions and A/B tests stay intact.
 No login/signing/secret/algorithm, financial controller, schema or owner-filter
 change is authorized here. MongoDB integration needs separate review.
+
+## Real MongoDB ownership integration (B3f)
+
+B3f adds an explicitly authorized, separate `npm run test:integration` command.
+Build first: it imports `dist/app.js`, never `server.ts` or `dist/server.js`.
+The existing 144 database-free contracts and `test`/`test:smoke` meaning remain
+unchanged. Real MongoDB is required to establish actual ObjectId casting, model
+validation, queries/count/sort/pagination, updates/deletes and persisted isolation;
+mocked B3d ownership contracts remain an independent baseline.
+
+Use only a dedicated disposable test MongoDB, never an existing application DB.
+The CI service is official MongoDB 7.0.45 pinned by digest in ci.yml, loopback-only
+on Node 22, with tmpfs data directories, bounded health checks and no secrets.
+Only explicit MONGODB_INTEGRATION_TEST=1 and the exact allowlisted
+MONGODB_TEST_BASE_URI are accepted. No application URL fallback, credentials,
+remote/SRV hosts, DB paths or query options; reuse of DATA_BASE_URL or
+DATA_BASE_URL_LOCAL is rejected. Do not loosen these guards for convenience.
+
+The helper generates a cryptographic unique database name per run, resets only
+its fixtures, verifies exact active names before drop, verifies the database is
+empty afterwards and closes its connection. Never add general database cleanup
+scripts or reuse a generated name. Keep all real persistence/controllers/auth
+unmocked in the financial integration suite. Test-owned loggers are silent to
+avoid writing synthetic JWTs/request bodies; production logging policy is intact.
+Release the ephemeral HTTP server, File transports, temp cwd/logs and env on every
+exit path. Unreachable MongoDB or cleanup failure must fail, not skip or pass.
+
+Both verify and mongodb-integration CI jobs must pass before merge readiness.
+No claims of complete security auditing: user existence/status, JWT revocation,
+other owner-scoped domains, concurrency, logging redaction, date boundaries,
+money precision and frontend end-to-end remain unproven. Do not start B4 or
+change production code automatically when an integration test exposes a defect;
+report synthetic evidence and wait for architectural review.
