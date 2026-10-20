@@ -20,6 +20,9 @@ router.use('/expenseTitles', require('./expenseTitles'));
 // balance
 router.use('/balance', require('./balance'));
 
+// Provisional read-only recurrence observations (after JWT middleware).
+router.use('/analytics/recurrence', require('./recurrence'));
+
 router.use((req, res, next) => {
   next(new NotFoundError('Страница не найдена!'));
 });
