@@ -236,3 +236,14 @@ other owner-scoped domains, concurrency, logging redaction, date boundaries,
 money precision and frontend end-to-end remain unproven. Do not start B4 or
 change production code automatically when an integration test exposes a defect;
 report synthetic evidence and wait for architectural review.
+
+B3f.1: `test:integration` uses the built-in programmatic test runner plus TAP
+reporter and fails on every `test:fail` event, including parent suites/hooks.
+Node 22 summary counters and a green job alone are insufficient evidence: inspect
+all TAP results for parent failures, cancelled/skipped tests and cleanup errors.
+`test:integration:runner` separately proves deliberate hook/file/test failures are
+rejected, while diagnostic strings are not treated as failure events. Keep this
+CI self-check and the 105 integration assertions intact. Suite hook contexts do
+not support diagnostic(); use plain static logging only after cleanup assertions.
+The expected Docker log-retrieval warning from --log-driver none is documented;
+do not weaken isolation or logging safeguards to hide it.

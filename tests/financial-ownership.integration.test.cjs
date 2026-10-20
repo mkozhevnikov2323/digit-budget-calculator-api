@@ -86,12 +86,12 @@ describe('real MongoDB financial ownership through compiled Express', { concurre
       await Model.create([fixtures[5], fixtures[0], fixtures[3], fixtures[2], fixtures[1], fixtures[4]]);
     }
   });
-  after(async context => {
+  after(async () => {
     if (!harness) return; // Failed setup cleans its own partially opened resources.
     const result = await harness.close();
     assert.deepEqual(result, { dropped: true, disconnected: true, listenerClosed: true,
       logsClosed: true, directoryRemoved: true, environmentRestored: true });
-    context.diagnostic('Owned generated MongoDB database dropped and verified empty; connection, listener, logs, cwd and environment released.');
+    console.info('Owned generated MongoDB database dropped and verified empty; connection, listener, logs, cwd and environment released.');
   });
 
   it('uses real ObjectId storage, compiled models/controllers/routes and a live standalone connection', async () => {

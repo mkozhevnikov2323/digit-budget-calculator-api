@@ -484,3 +484,33 @@ redaction, все date/timezone boundaries, денежная точность и
 Фикстуры используют UTC и даты вдали от границ локального месяца; текущая
 month/year семантика не изменяется. Контроллеры, HTTP API, JWT, схемы и owner filters
 не меняются. Следующие security/migration задачи и merge требуют отдельного review.
+
+### Защита от false-green test runner (B3f.1)
+
+В исходном B3f CI Node.js 22 сообщал `105 pass / 0 fail`, но родительский suite
+завершался ошибкой hook: suite context не поддерживает `context.diagnostic()`.
+Этот вызов заменён обычным статическим сообщением после неизменённых assertions
+cleanup. Прежний зелёный статус run 39386430073 не доказывал успешный suite.
+
+`npm run test:integration` теперь использует `tests/run-integration-tests.cjs`:
+встроенный `node:test.run` последовательно выполняет те же два файла с прежним
+timeout, а встроенный TAP reporter сохраняет полный вывод. Любое событие
+`test:fail`, включая parent suite или hook, устанавливает ненулевой exit code,
+независимо от ошибочного итогового счётчика Node 22. Ошибка самого runner тоже
+даёт ненулевой результат. Диагностические строки не разбираются как TAP records.
+
+`npm run test:integration:runner` проверяет этот механизм отдельно от 105
+integration-сценариев и 144 прежних database-free тестов. Пять проверок создают и
+удаляют временные изолированные файлы: отказ after-hook при успешном child,
+before-hook, обычный failing test, сбой файла до регистрации тестов и успешный
+тест с failure-looking диагностикой. Намеренно сломанные fixtures не входят в
+обычную integration suite. На Node 22 воспроизводится raw exit=0 для сломанного
+after-hook, тогда как общий runner возвращает 1. CI выполняет эту самопроверку
+перед реальным MongoDB suite; локальная команда и CI имеют одинаковые failure
+semantics. Cleanup assertions, модели, JWT и финансовые проверки не ослаблены.
+
+Ожидаемое неблокирующее предупреждение Docker при завершении CI:
+`configured logging driver does not support reading`. Оно связано с отключённым
+container logging (`--log-driver none`), когда Actions пытается получить логи
+сервиса. Настройка сохранена; сетевой доступ, secrets и логирование финансовых
+записей ради подавления предупреждения не расширяются.
