@@ -103,11 +103,18 @@ describe('isolated Express app (no server bootstrap or database)', { concurrency
     req.end(body);
   }));
   const jsonHeaders = { 'Content-Type': 'application/json' };
-  const assertValidation = (response, field) => {
+  const assertValidation = (response, field, message = `"${field}" is required`) => {
     assert.equal(response.status, 400);
     assert.match(response.headers['content-type'], /application\/json/);
     assert.deepEqual(JSON.parse(response.body), { statusCode: 400, error: 'Bad Request', message: 'Validation failed',
-      validation: { body: { source: 'body', keys: [field], message: `"${field}" is required` } } });
+      validation: { body: { source: 'body', keys: [field], message } } });
+  };
+  const formHeaders = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  const assertErrorResponse = (response, status, message) => {
+    assert.equal(response.status, status);
+    assert.match(response.headers['content-type'], /application\/json/);
+    assert.deepEqual(JSON.parse(response.body), { message });
+    for (const call of forbiddenCalls) assert.equal(call.mock.callCount(), 0);
   };
 
   it('imports a configured app without MongoDB connection or HTTP listener', () => {
@@ -151,6 +158,96 @@ describe('isolated Express app (no server bootstrap or database)', { concurrency
     const body = JSON.parse(response.body);
     assert.deepEqual(Object.keys(body), ['message']);
     assert.match(body.message, /JSON/i);
+  });
+
+  it('parses valid JSON before real login validation without reaching persistence', async () => {
+    assertValidation(await request('POST', '/signin', jsonHeaders,
+      JSON.stringify({ email: 'fictional@example.com' })), 'password');
+  });
+
+  for (const [label, body, field, message] of [
+    ['nested object', 'email[value]=fictional%40example.com', 'email', '"email" must be a string'],
+    ['bracket array', 'email[]=fictional%40example.com&email[]=other%40example.com', 'email', '"email" must be a string'],
+    // qs tolerates invalid percent escapes; the existing rejection is Joi's
+    // email validation, not a newly invented parser error contract.
+    ['malformed percent encoding', 'email=%E0%A4%A', 'email', '"email" must be a valid email'],
+    ['unclosed bracket', 'email[=fictional%40example.com', 'email', '"email" is required'],
+  ]) {
+    it(`preserves bounded URL-encoded ${label} validation`, async () => {
+      assertValidation(await request('POST', '/signin', formHeaders, body), field, message);
+    });
+  }
+
+  it('accepts exactly the default 100 KiB JSON limit before login validation', async () => {
+    const json = JSON.stringify({ email: 'fictional@example.com' });
+    const body = json + ' '.repeat(100 * 1024 - Buffer.byteLength(json));
+    assert.equal(Buffer.byteLength(body), 100 * 1024);
+    assertValidation(await request('POST', '/signin', jsonHeaders, body), 'password');
+  });
+
+  for (const [label, headers, prefix] of [
+    ['JSON', jsonHeaders, '{}'],
+    ['URL-encoded', formHeaders, 'padding='],
+  ]) {
+    it(`rejects ${label} one byte over the default body limit before authentication/persistence`, async () => {
+      // Bounded 102401-byte fixture, not a load/OOM test. The protected route
+      // would return 401 if parsing did not reject before authentication.
+      const fill = label === 'JSON' ? ' ' : 'x';
+      const body = prefix + fill.repeat(100 * 1024 + 1 - Buffer.byteLength(prefix));
+      assert.equal(Buffer.byteLength(body), 100 * 1024 + 1);
+      assertErrorResponse(await request('POST', '/expenses', headers, body), 413, 'request entity too large');
+    });
+  }
+
+  it('accepts 1000 URL-encoded parameters before login validation', async () => {
+    const body = ['email=fictional%40example.com', ...Array(999).fill('spare=x')].join('&');
+    assert.ok(Buffer.byteLength(body) < 12000);
+    assertValidation(await request('POST', '/signin', formHeaders, body), 'password');
+  });
+
+  it('rejects 1001 URL-encoded parameters before authentication/persistence', async () => {
+    const body = Array(1001).fill('spare=x').join('&');
+    assert.ok(Buffer.byteLength(body) < 12000);
+    assertErrorResponse(await request('POST', '/expenses', formHeaders, body), 413, 'too many parameters');
+  });
+
+  it('rejects a bounded form beyond the default nesting depth before authentication/persistence', async () => {
+    const body = `email${'[nested]'.repeat(33)}=fictional`;
+    assert.ok(Buffer.byteLength(body) < 400);
+    assertErrorResponse(await request('POST', '/expenses', formHeaders, body), 400, 'The input exceeded the depth');
+  });
+
+  it('accepts a quoted case-insensitive JSON content type and UTF-8 charset', async () => {
+    assertValidation(await request('POST', '/signin', { 'Content-Type': 'Application/JSON; Charset="UTF-8"' },
+      JSON.stringify({ email: 'fictional@example.com' })), 'password');
+  });
+
+  it('decodes valid UTF-16LE JSON before real validation', async () => {
+    const body = Buffer.from(JSON.stringify({ email: 'fictional@example.com' }), 'utf16le');
+    assertValidation(await request('POST', '/signin', { 'Content-Type': 'application/json; charset=utf-16le' }, body), 'password');
+  });
+
+  it('preserves the accepted ISO-8859-1 form charset', async () => {
+    assertValidation(await request('POST', '/signin', {
+      'Content-Type': 'application/x-www-form-urlencoded; charset=iso-8859-1',
+    }, 'email=fictional%40example.com&padding=caf%E9'), 'password');
+  });
+
+  for (const [type, charset, body] of [
+    ['application/json', 'iso-8859-1', '{}'],
+    ['application/x-www-form-urlencoded', 'utf-16le', 'email=fictional%40example.com'],
+  ]) {
+    it(`rejects unsupported ${type} charset before authentication/persistence`, async () => {
+      assertErrorResponse(await request('POST', '/expenses', { 'Content-Type': `${type}; charset=${charset}` }, body),
+        415, `unsupported charset "${charset.toUpperCase()}"`);
+    });
+  }
+
+  it('preserves the existing generic 500 when text/plain bypasses body parsing', async () => {
+    // Baseline behavior: skipped parsing leaves body undefined on this legacy
+    // login path. Changing its HTTP error policy is outside this dependency PR.
+    assertErrorResponse(await request('POST', '/signin', { 'Content-Type': 'text/plain' },
+      JSON.stringify({ email: 'fictional@example.com' })), 500, 'На сервере произошла ошибка');
   });
 
   it('adds the existing localhost CORS header even to unauthorized responses', async () => {
