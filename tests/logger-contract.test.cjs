@@ -112,7 +112,7 @@ describe('compiled file logging contracts', { concurrency: false, timeout: 10000
     const [info] = await logged;
     const json = JSON.parse(info[Symbol.for('message')]);
     assert.equal(json.level, 'info');
-    assert.equal(json.message, 'HTTP GET /synthetic-logger-contract');
+    assert.equal(json.message, 'http_request');
   });
 
   it('logs a synthetic error as JSON and delegates the same error once', async () => {
@@ -126,7 +126,7 @@ describe('compiled file logging contracts', { concurrency: false, timeout: 10000
     const [info] = await logged;
     const json = JSON.parse(info[Symbol.for('message')]);
     assert.equal(json.level, 'error');
-    assert.equal(json.message, 'middlewareError');
+    assert.equal(json.message, 'http_error');
   });
 
   it('never connects to MongoDB, starts listeners or imports server bootstrap', () => {

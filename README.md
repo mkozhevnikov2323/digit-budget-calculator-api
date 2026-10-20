@@ -251,12 +251,10 @@ DEFAULT_ALLOWED_METHODS читается при импорте. OPTIONS заве
 methods/request headers Express по-прежнему записывает строку `"undefined"`;
 миграция не добавляет defaults или валидацию. Это отдельный вопрос конфигурации.
 
-Логгеры создаются при импорте и используют прежние File transports `request.log`
-и `error.log`, формат JSON и неизменённые express-winston options.
-Security follow-up: defaults express-winston включают request headers/url/query
-при пустом header blacklist. Возможна запись чувствительных заголовков/query и
-метаданных ошибок; политику redaction необходимо согласовать отдельно. Миграция
-не расширяет и не меняет логирование, не является полным аудитом его безопасности.
+Логгеры создаются при импорте и используют File transports `request.log` и
+`error.log`, формат JSON. B3c сохранял defaults express-winston с небезопасными
+headers/url/query и метаданными ошибок. B3g намеренно ограничивает содержимое
+записей (см. актуальную политику ниже); это не полный аудит всех каналов логирования.
 
 После `npm run build` запускайте `npm run test`: это alias сохранённой команды
 `test:smoke` с явно перечисленными файлами. На этапе B3c прежние 57 тестов
@@ -514,3 +512,42 @@ semantics. Cleanup assertions, модели, JWT и финансовые про�
 container logging (`--log-driver none`), когда Actions пытается получить логи
 сервиса. Настройка сохранена; сетевой доступ, secrets и логирование финансовых
 записей ради подавления предупреждения не расширяются.
+
+## Безопасные файловые логи (B3g)
+
+`middlewares/logger.ts` сохраняет JSON/File transports `request.log` и `error.log`,
+CommonJS exports и порядок middleware. Разрешены только:
+
+- `level`: фиксированный `info` для запросов, `error` для ошибок.
+- `message`: фиксированный `http_request` или `http_error`.
+- `method`: GET/POST/PUT/PATCH/DELETE/OPTIONS/HEAD/CONNECT/TRACE, иначе `OTHER`.
+- `statusCode`: только в request log, целое число 100–599 после завершения ответа;
+  некорректные значения опускаются. Error logger работает до global handler,
+  поэтому не записывает ещё не установленный итоговый статус.
+
+Стандартные поля req/res отключены; сериализация исключений возвращает пустой
+объект. Перед
+JSON-форматированием создаётся новый объект по allowlist: дополнительные поля,
+вложенные данные и Winston MESSAGE/SPLAT symbols не копируются. Это защищает и
+от расширения metadata библиотекой или route whitelists. Заголовки (включая
+Authorization/Cookie), JWT, пароли, body обоих направлений, query, req.user,
+params, финансовые суммы/описания/источники/комментарии, error.message/stack и
+произвольные error properties исключены. В pathname тоже могут быть секреты;
+удалить только query недостаточно. Исключение может содержать пользовательский
+ввод или строку подключения, поэтому оно не сериализуется вообще.
+
+После build команда `npm run test` запускает прежние 144 database-free теста
+(в logger contracts намеренно изменены только два ожидаемых сообщения) и
+31 новый тест `tests/logging-security.test.cjs`. Проверяются полные реальные
+файлы после flush/закрытия потоков, синтетические секреты, enrichment/formatting,
+сохранение полезных событий и HTTP-ответов. Используются настоящий compiled app,
+JWT/Celebrate, loopback HTTP и отдельные тестовые success/500 routes без БД.
+CI Node 22 сохраняет jobs `verify` и `mongodb-integration`; B3f logger.silent,
+105 integration-проверок, 5 runner self-tests и DB guards не меняются.
+
+Граница защиты — эти два файловых middleware. Консоль, зависимости, другие
+каналы, reverse proxy и внешнее хранение не прошли полный аудит. Уменьшение
+диагностических деталей намеренное; дальнейшие категории требуют отдельного
+review. Права доступа, retention/rotation и безопасное удаление старых логов —
+отдельная эксплуатационная задача. Уже записанные логи автоматически не
+очищаются и могут содержать чувствительные данные. Docker logging не меняется.

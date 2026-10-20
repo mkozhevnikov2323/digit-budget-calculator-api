@@ -137,8 +137,8 @@ object because a typed export = object cannot keep the old named TS import.
 Middleware order and property lookup timing are unchanged.
 CORS keeps the two exact origins and module-time DEFAULT_ALLOWED_METHODS capture;
 undefined preflight values still reach Express and become the literal "undefined".
-Logging still creates File transports request.log/error.log with JSON at import.
-No filtering, redaction, defaults, transports or logging policies were changed.
+Logging creates File transports request.log/error.log with JSON at import.
+B3c preserved defaults; B3g intentionally restricts their output (policy below).
 
 `npm run test` aliases the explicit `test:smoke` command: the previous 57 tests
 plus `cors-contract.test.cjs` and `logger-contract.test.cjs`, all using compiled
@@ -147,10 +147,10 @@ real Winston/File I/O in a temporary cwd, close loggers and await actual fs stre
 close events before deleting logs; DB/network/listen are blocked. Existing app
 smoke tests cover the real compiled app with these middleware.
 
-Security follow-up: express-winston defaults include request headers/url/query
-with an empty header blacklist; sensitive headers/query and error metadata may be
-logged. This PR does not audit or change logging policy. Unknown-origin OPTIONS
-still ends without allow-origin; missing preflight configuration is not repaired.
+The old express-winston defaults exposed headers/url/query and exception metadata;
+B3g replaces them with the final serialization allowlist below. Other logging
+channels are not audited. Unknown-origin OPTIONS still ends without allow-origin;
+missing preflight configuration is not repaired.
 JWT signature verification is not sufficient to establish valid owner identity.
 Backend authorization and ownership require separate contract/security verification
 before adding live multiuser financial classification.
@@ -247,3 +247,31 @@ CI self-check and the 105 integration assertions intact. Suite hook contexts do
 not support diagnostic(); use plain static logging only after cleanup assertions.
 The expected Docker log-retrieval warning from --log-driver none is documented;
 do not weaken isolation or logging safeguards to hide it.
+
+## Safe File logging (B3g)
+
+Preserve real express-winston/Winston File transports request.log/error.log,
+JSON, export = { requestLogger, errorLogger }, next()/next(originalError), and
+middleware order. Only fixed level/message (info/http_request or error/http_error),
+enum method (GET/POST/PUT/PATCH/DELETE/OPTIONS/HEAD/CONNECT/TRACE, otherwise OTHER)
+and request-only final integer statusCode 100–599 are allowed. Omit invalid
+statuses; the error middleware runs before the final status is selected.
+
+Disable built-in req/res metadata and exception serialization. Keep the fresh
+allowlisted object immediately before format.json: do not copy arbitrary metadata,
+toJSON or MESSAGE/SPLAT symbols. Exclude headers/auth/cookies, bodies, query,
+user/params, full URLs including pathname, financial data, raw error messages,
+stacks and properties. Paths and errors can contain user secrets or DB URIs;
+field-name blacklists and query removal cannot enforce this policy.
+
+Build then run test/test:smoke: 144 existing database-free tests plus 31 real-file
+logging-security tests (full contents after actual flush/close, real compiled app,
+JWT/Celebrate, synthetic loopback success/400/401/404/500, no persistence).
+Keep B3f silent logging, DB guards, 105 integration cases and 5 runner self-tests
+independent and unchanged. Keep Node 22 CI jobs and Docker logging configuration.
+
+This audits only these two middleware outputs. Console/dependency/proxy logs and
+external storage are outside the guarantee. Existing logs are not retroactively
+sanitized; retention, rotation, filesystem permissions and old-log handling need
+separate operational review. Reduced diagnostics are intentional. Do not add raw
+exception/route identifiers without review or start B3h/B4 automatically.
