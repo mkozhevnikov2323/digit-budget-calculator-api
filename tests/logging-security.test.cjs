@@ -18,9 +18,11 @@ const markers = Object.fromEntries([
   'cookie', 'password', 'query', 'pathname', 'description', 'source', 'comment',
   'nested', 'errorMessage', 'errorStack', 'errorMetadata', 'databaseUri',
   'validation', 'responseBody', 'unknownMethod', 'symbolMessage', 'symbolSplat',
-  'nestedSerializer', 'invalidStatus', 'userClaim',
+  'nestedSerializer', 'invalidStatus', 'userClaim', 'malformedPassword', 'malformedDescription',
 ].map(label => [label, `B3G_SYNTHETIC_${label}_9f3c7a`]));
 markers.amount = '937462.81';
+markers.malformedAmount = '486291.73';
+const malformedBody = `{"password":"${markers.malformedPassword}","amount":${markers.malformedAmount},"description":"${markers.malformedDescription}",}`;
 markers.jwt = jwt.sign({ _id: 'aaaaaaaaaaaaaaaaaaaaaaaa', fixture: markers.userClaim },
   'super-secret-key', { noTimestamp: true });
 markers.invalidJwt = jwt.sign({ _id: 'bbbbbbbbbbbbbbbbbbbbbbbb' },
@@ -33,6 +35,7 @@ describe('sensitive data excluded from actual serialized File logs', { concurren
   let middleware;
   let files;
   let records;
+  let parserMessage;
   const originalEnv = new Map();
   const loggers = [];
   const opened = [];
@@ -72,7 +75,8 @@ describe('sensitive data excluded from actual serialized File logs', { concurren
     });
     req.on('error', reject);
     req.setTimeout(3000, () => req.destroy(new Error('Synthetic loopback request timed out')));
-    req.end(body === undefined ? undefined : JSON.stringify(body));
+    // Buffers are raw bytes; existing object fixtures retain JSON serialization.
+    req.end(body === undefined ? undefined : Buffer.isBuffer(body) ? body : JSON.stringify(body));
   });
 
   const listen = async app => {
@@ -148,6 +152,11 @@ describe('sensitive data excluded from actual serialized File logs', { concurren
     const globalErrorHandler = require('../dist/errors/globalErrorHandler.js');
     const port = await listen(app);
     const auth = { Authorization: `Bearer ${markers.jwt}` };
+    try { JSON.parse(malformedBody); }
+    catch (error) { parserMessage = error.message; }
+    // First traffic: its error must be the first error.log event. body-parser
+    // rejects before requestLogger and routes; no persistence is reached.
+    responses.malformed = await request(port, 'POST', '/signin', {}, Buffer.from(malformedBody));
     responses.unauthorized = await request(port, 'GET', `/expenses?secret=${markers.query}`, {
       Authorization: `Bearer ${markers.invalidJwt}`, Cookie: `session=${markers.cookie}`,
     });
@@ -255,8 +264,8 @@ describe('sensitive data excluded from actual serialized File logs', { concurren
   });
 
   it('emits request events with final 200/201/204/400/401/404/500 statuses and error events', () => {
-    assert.equal(records['request.log'].length, 10); // Eight HTTP, one direct middleware, one enrichment.
-    assert.equal(records['error.log'].length, 7); // Six real error paths plus enrichment.
+    assert.equal(records['request.log'].length, 10); // Eight HTTP, one direct middleware, one enrichment; parser failure bypasses it.
+    assert.equal(records['error.log'].length, 8); // Seven real error paths plus enrichment.
     for (const status of [200, 201, 204, 400, 401, 404, 500]) {
       assert.equal(records['request.log'].some(entry => entry.statusCode === status), true);
     }
@@ -279,6 +288,34 @@ describe('sensitive data excluded from actual serialized File logs', { concurren
       assert.equal(responses[label].status, 400);
       assert.deepEqual(JSON.parse(responses[label].body), { statusCode: 400, error: 'Bad Request', message: 'Validation failed',
         validation: { body: { source: 'body', keys: [field], message } } });
+    }
+  });
+
+  it('preserves the real malformed JSON parser HTTP 400 contract', () => {
+    assert.equal(typeof parserMessage, 'string', 'Fixture must be genuinely malformed JSON');
+    assert.equal(responses.malformed.status, 400);
+    assert.equal(/application\/json/.test(responses.malformed.headers['content-type']), true);
+    let body;
+    try { body = JSON.parse(responses.malformed.body); }
+    catch { assert.fail('Parser error response must be JSON'); }
+    // The legacy global handler forwards the parser message. Compare booleans
+    // so neither the response nor secret-bearing parser text is printed on failure.
+    assert.equal(body !== null && typeof body === 'object', true);
+    assert.equal(Object.keys(body).length === 1 && Object.hasOwn(body, 'message'), true);
+    assert.equal(body.message === parserMessage, true, 'Existing parser response message changed');
+  });
+
+  it('records the parser failure safely without raw body or exception details in either complete file', () => {
+    const event = records['error.log'][0];
+    assert.equal(Object.keys(event).sort().join(',') === 'level,message,method', true);
+    assert.equal(event.level === 'error' && event.message === 'http_error' && event.method === 'POST', true);
+    for (const [filename, text] of Object.entries(files)) {
+      for (const value of [malformedBody, parserMessage]) {
+        assert.equal(text.includes(value), false, `Parser contents appeared in ${filename}`);
+        assert.equal(text.includes(JSON.stringify(value).slice(1, -1)), false, `Escaped parser contents appeared in ${filename}`);
+      }
+      assert.equal(/SyntaxError|entity\.parse\.failed|node_modules[\\/](?:body-parser|raw-body)/.test(text), false,
+        `Parser exception details appeared in ${filename}`);
     }
   });
 
