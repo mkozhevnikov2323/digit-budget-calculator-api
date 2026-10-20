@@ -10,7 +10,7 @@
     "test": "npm run test:smoke",
     "test:integration": "node tests/run-integration-tests.cjs",
     "test:integration:runner": "node tests/run-integration-tests.cjs tests/integration-runner.test.cjs",
-    "test:smoke": "node --test tests/app-smoke.test.cjs tests/error-contract.test.cjs tests/auth-contract.test.cjs tests/cors-contract.test.cjs tests/logger-contract.test.cjs tests/financial-ownership-contract.test.cjs tests/logging-security.test.cjs"
+    "test:smoke": "node --test tests/app-smoke.test.cjs tests/error-contract.test.cjs tests/auth-contract.test.cjs tests/cors-contract.test.cjs tests/logger-contract.test.cjs tests/financial-ownership-contract.test.cjs tests/logging-security.test.cjs tests/validation-security.test.cjs"
   },
   "repository": {
     "type": "git",
