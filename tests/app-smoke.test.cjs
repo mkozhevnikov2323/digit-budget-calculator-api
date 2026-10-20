@@ -10,6 +10,26 @@ const mongoose = require('mongoose');
 const winston = require('winston');
 const proxyaddr = require('proxy-addr');
 
+describe('Mongoose filter sanitization (no database)', { timeout: 1000 }, () => {
+  for (const operator of ['$and', '$or', '$nor']) {
+    it(`sanitizes bounded selectors inside ${operator} without global options`, () => {
+      const filter = { [operator]: [{ amount: { $gt: 0 } }, { owner: { $ne: null } }] };
+      const result = mongoose.sanitizeFilter(filter);
+      assert.deepEqual(result, { [operator]: [
+        { amount: { $eq: { $gt: 0 } } }, { owner: { $eq: { $ne: null } } },
+      ] });
+      // Calling the public helper must not enable sanitization on app queries.
+      assert.equal(mongoose.get('sanitizeFilter'), undefined);
+    });
+  }
+  it('sanitizes nested $nor and preserves an existing equality selector', () => {
+    const filter = { $and: [{ $nor: [{ comment: { $regex: '^fictional$' } }] }], amount: { $eq: 1 } };
+    assert.deepEqual(mongoose.sanitizeFilter(filter), {
+      $and: [{ $nor: [{ comment: { $eq: { $regex: '^fictional$' } } }] }], amount: { $eq: 1 },
+    });
+  });
+});
+
 describe('proxy subnet security (synthetic addresses, no sockets)', { timeout: 1000 }, () => {
   // Exercise both public compile forms: one range and multiple ranges. The
   // unrelated documentation range must not mask a false match in the target.
