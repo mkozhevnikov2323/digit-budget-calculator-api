@@ -8,6 +8,64 @@ const http = require('node:http');
 const net = require('node:net');
 const mongoose = require('mongoose');
 const winston = require('winston');
+const proxyaddr = require('proxy-addr');
+
+describe('proxy subnet security (synthetic addresses, no sockets)', { timeout: 1000 }, () => {
+  // Exercise both public compile forms: one range and multiple ranges. The
+  // unrelated documentation range must not mask a false match in the target.
+  for (const [label, ranges] of [
+    ['single subnet', subnet => subnet],
+    ['multiple subnets', subnet => ['2001:db8:ffff::/48', subnet]],
+  ]) {
+    for (const subnet of ['::ffff:10.0.0.0/8', '::ffff:10.0.0.0/95', '::/1', '::/32', '::/80', '::/96']) {
+      it(`${label}: ${subnet} must not trust IPv4 or mapped IPv4 peers`, () => {
+        const trust = proxyaddr.compile(ranges(subnet));
+        for (const peer of ['10.1.2.3', '198.51.100.23', '::ffff:10.1.2.3', '::ffff:198.51.100.23']) {
+          assert.equal(trust(peer), false);
+          const req = { socket: { remoteAddress: peer }, headers: { 'x-forwarded-for': '203.0.113.9' } };
+          assert.equal(proxyaddr(req, trust), peer);
+          assert.deepEqual(proxyaddr.all(req, trust), [peer]);
+        }
+      });
+    }
+
+    for (const subnet of ['::ffff:10.0.0.0/104', '10.0.0.0/8']) {
+      it(`${label}: ${subnet} trusts only the intended IPv4 range`, () => {
+        const trust = proxyaddr.compile(ranges(subnet));
+        for (const peer of ['10.0.0.0', '10.1.2.3', '10.255.255.255']) {
+          assert.equal(trust(peer), true);
+          assert.equal(trust(`::ffff:${peer}`), true);
+        }
+        for (const peer of ['9.255.255.255', '11.0.0.0', '198.51.100.23']) {
+          assert.equal(trust(peer), false);
+          assert.equal(trust(`::ffff:${peer}`), false);
+        }
+        assert.equal(trust('2001:db8:1::1'), false);
+        // A legitimate proxy remains usable, but processing stops at the first
+        // untrusted hop rather than accepting the client's leftmost header.
+        const req = { socket: { remoteAddress: '::ffff:10.1.2.3' },
+          headers: { 'x-forwarded-for': '203.0.113.9, 198.51.100.23' } };
+        assert.equal(proxyaddr(req, trust), '198.51.100.23');
+        assert.deepEqual(proxyaddr.all(req, trust), ['::ffff:10.1.2.3', '198.51.100.23']);
+      });
+    }
+
+    it(`${label}: /96 covers the mapped marker but excludes native IPv6`, () => {
+      const trust = proxyaddr.compile(ranges('::ffff:0.0.0.0/96'));
+      assert.equal(trust('198.51.100.23'), true);
+      assert.equal(trust('::ffff:198.51.100.23'), true);
+      assert.equal(trust('::1'), false);
+      assert.equal(trust('2001:db8:1::1'), false);
+    });
+
+    it(`${label}: native IPv6 zero-leading-bit ranges retain IPv6 matching`, () => {
+      const trust = proxyaddr.compile(ranges('::/1'));
+      assert.equal(trust('::1'), true);
+      assert.equal(trust('2001:db8:1::1'), true);
+      assert.equal(trust('8000::1'), false);
+    });
+  }
+});
 
 describe('isolated Express app (no server bootstrap or database)', { concurrency: false, timeout: 15000 }, () => {
   let app;
@@ -128,6 +186,30 @@ describe('isolated Express app (no server bootstrap or database)', { concurrency
 
   it('binds an ephemeral loopback port and closes it cleanly', async () => {
     await withListener(async () => {});
+  });
+
+  it('keeps the real compiled app trust proxy disabled and ignores forwarded identity', () => {
+    assert.equal(app.get('trust proxy'), false);
+    const socket = { remoteAddress: '198.51.100.23' };
+    const req = Object.assign(Object.create(app.request), { app, socket, headers: {
+      host: 'local.example.invalid', 'x-forwarded-for': '203.0.113.9',
+      'x-forwarded-host': 'forwarded.example.invalid', 'x-forwarded-proto': 'https',
+    } });
+    assert.equal(app.get('trust proxy fn')(socket.remoteAddress, 0), false);
+    assert.equal(req.ip, socket.remoteAddress);
+    assert.deepEqual(req.ips, []);
+    assert.equal(req.hostname, 'local.example.invalid');
+    assert.equal(req.protocol, 'http');
+    assert.equal(req.secure, false);
+  });
+
+  it('keeps forwarded headers from bypassing real HTTP authentication', async () => {
+    const response = await request('GET', '/expenses', {
+      'X-Forwarded-For': '10.1.2.3, 203.0.113.9',
+      'X-Forwarded-Host': 'forwarded.example.invalid', 'X-Forwarded-Proto': 'https',
+    });
+    assertErrorResponse(response, 401, 'Необходима авторизация.');
+    assert.equal(app.get('trust proxy'), false);
   });
 
   for (const endpoint of ['/expenses', '/incomes', '/users/me', '/balance', '/not-a-route']) {
