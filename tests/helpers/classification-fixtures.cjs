@@ -1,0 +1,53 @@
+const stable = 'financial-classification-v1';
+const input = (extra = {}) => ({
+  owner: 'aaaaaaaaaaaaaaaaaaaaaaaa', dataset: 'expenses', operationId: '111111111111111111111111',
+  state: 'approved', assignment: { economicRole: 'ordinary_expense', layer: 'everyday' },
+  taxonomyVersion: stable, decisionOrigin: 'manual', decisionRevision: 1,
+  sourceFingerprint: 'a'.repeat(64), sourceFingerprintVersion: 1,
+  sourceObservedAt: new Date(1736942400000), createdAt: new Date(1736942400001), updatedAt: new Date(1736942400002),
+  lastMutation: { requestId: '12345678-1234-4234-8234-123456789abc',
+    commandFingerprint: 'b'.repeat(64), commandFingerprintVersion: 1 }, ...extra,
+});
+const omit = (value, key) => { const out = { ...value }; delete out[key]; return out; };
+// Shared synthetic invariant cases; no financial values in failure descriptions.
+const invalidCases = [
+  ['unknown field', x => ({ ...x, privateField: 'synthetic-private-marker' })],
+  ['missing owner', x => omit(x, 'owner')], ['null owner', x => ({ ...x, owner: null })],
+  ['invalid owner type', x => ({ ...x, owner: 1 })], ['invalid operation ID', x => ({ ...x, operationId: 'invalid' })],
+  ['unknown dataset', x => ({ ...x, dataset: 'unknown' })],
+  ['unknown state', x => ({ ...x, state: 'unreviewed' })],
+  ['approved without assignment', x => omit(x, 'assignment')],
+  ['null assignment', x => ({ ...x, assignment: null })],
+  ['cleared with assignment', x => ({ ...x, state: 'cleared' })],
+  ['explicit unclassified with assignment', x => ({ ...x, state: 'explicit_unclassified' })],
+  ['missing role', x => ({ ...x, assignment: { layer: 'everyday' } })],
+  ['unknown role', x => ({ ...x, assignment: { economicRole: 'unknown', layer: null } })],
+  ['missing layer', x => ({ ...x, assignment: { economicRole: 'ordinary_expense' } })],
+  ['unknown layer', x => ({ ...x, assignment: { economicRole: 'ordinary_expense', layer: 'unknown' } })],
+  ['null expense layer', x => ({ ...x, assignment: { economicRole: 'ordinary_expense', layer: null } })],
+  ['layer on non-spending role', x => ({ ...x, dataset: 'incomes', assignment: { economicRole: 'ordinary_income', layer: 'everyday' } })],
+  ['incompatible role dataset', x => ({ ...x, assignment: { economicRole: 'ordinary_income', layer: null } })],
+  ['assignment extra key', x => ({ ...x, assignment: { ...x.assignment, extra: true } })],
+  ['provisional taxonomy', x => ({ ...x, taxonomyVersion: 'financial-layers-v1-provisional' })],
+  ['unknown taxonomy', x => ({ ...x, taxonomyVersion: 'financial-classification-v2' })],
+  ['automatic origin', x => ({ ...x, decisionOrigin: 'automatic' })],
+  ...[0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '1', NaN, Infinity].map((revision, index) =>
+    ['invalid revision case ' + index, x => ({ ...x, decisionRevision: revision })]),
+  ['missing revision', x => omit(x, 'decisionRevision')],
+  ['invalid digest', x => ({ ...x, sourceFingerprint: 'invalid' })],
+  ['uppercase digest', x => ({ ...x, sourceFingerprint: 'A'.repeat(64) })],
+  ['unsupported fingerprint version', x => ({ ...x, sourceFingerprintVersion: 2 })],
+  ['coerced fingerprint version', x => ({ ...x, sourceFingerprintVersion: '1' })],
+  ['missing observed timestamp', x => omit(x, 'sourceObservedAt')],
+  ['timestamp string', x => ({ ...x, createdAt: '2025-01-15T12:00:00.000Z' })],
+  ['reversed timestamps', x => ({ ...x, createdAt: new Date(1736942400010) })],
+  ['missing last mutation', x => omit(x, 'lastMutation')],
+  ['null last mutation', x => ({ ...x, lastMutation: null })],
+  ['last mutation extra key', x => ({ ...x, lastMutation: { ...x.lastMutation, extra: true } })],
+  ['invalid request ID', x => ({ ...x, lastMutation: { ...x.lastMutation, requestId: 'invalid' } })],
+  ['wrong UUID version', x => ({ ...x, lastMutation: { ...x.lastMutation, requestId: '12345678-1234-1234-8234-123456789abc' } })],
+  ['missing command digest', x => ({ ...x, lastMutation: omit(x.lastMutation, 'commandFingerprint') })],
+  ['invalid command digest', x => ({ ...x, lastMutation: { ...x.lastMutation, commandFingerprint: 'bad' } })],
+  ['unsupported command version', x => ({ ...x, lastMutation: { ...x.lastMutation, commandFingerprintVersion: 2 } })],
+];
+module.exports = { input, omit, invalidCases, stable };

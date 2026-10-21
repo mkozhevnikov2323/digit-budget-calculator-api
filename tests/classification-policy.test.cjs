@@ -156,11 +156,11 @@ describe('explicit synthetic classification compatibility policy', () => {
     for (const policyVersion of [undefined, null, '', 1, POLICY_VERSION + ' ', 'dataset-role-compatibility-v2']) {
       invalidPolicy({ ...candidate(), policyVersion }, 'unsupported_policy_version');
     }
-    for (const taxonomyVersion of [undefined, null, '', 1, 'financial-classification-v1',
+    for (const taxonomyVersion of [undefined, null, '', 1, 'financial-classification-v2',
       PROVISIONAL_TAXONOMY_VERSION + ' ', 'financial-layers-v2-provisional']) {
       invalidPolicy({ ...candidate(), taxonomyVersion }, 'unsupported_policy_taxonomy');
     }
-    rejected(decision({ taxonomyVersion: 'financial-classification-v1' }), checkedPolicy(), 'unsupported_taxonomy');
+    rejected(decision({ taxonomyVersion: 'financial-classification-v1' }), checkedPolicy(), 'unsupported_policy_taxonomy');
     rejected(decision({ taxonomyVersion: 'unknown' }), checkedPolicy(), 'unsupported_taxonomy');
   });
   it('requires an explicit dataset list for all seven roles', () => {

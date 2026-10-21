@@ -1,6 +1,6 @@
 /** Pure compatibility checks. No default policy, IO, authorization or interpretation. */
 import {
-  ECONOMIC_ROLES, PROVISIONAL_TAXONOMY_VERSION, validateClassificationDecision,
+  ECONOMIC_ROLES, isSupportedTaxonomyVersion, validateClassificationDecision,
   type ClassificationDecision, type Dataset, type EconomicRole, type TaxonomyVersion,
   type ValidationErrorCode,
 } from '../classification';
@@ -79,7 +79,7 @@ const validateDefinition = (input: unknown): CompatibilityResult<CompatibilityPo
     || /\s/.test(record.policyId) || !/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(record.policyId))
     return failure('invalid_policy_identity');
   if (record.policyVersion !== POLICY_VERSION) return failure('unsupported_policy_version');
-  if (record.taxonomyVersion !== PROVISIONAL_TAXONOMY_VERSION) return failure('unsupported_policy_taxonomy');
+  if (!isSupportedTaxonomyVersion(record.taxonomyVersion)) return failure('unsupported_policy_taxonomy');
   const matrix = readRecord(record.allowedDatasets, ECONOMIC_ROLES);
   if (!matrix.ok) return matrix;
   if (ECONOMIC_ROLES.some(role => !Object.hasOwn(matrix.value, role))) return failure('invalid_policy_matrix');
@@ -91,7 +91,7 @@ const validateDefinition = (input: unknown): CompatibilityResult<CompatibilityPo
   }
   return success(Object.freeze({
     policyId: record.policyId, policyVersion: POLICY_VERSION,
-    taxonomyVersion: PROVISIONAL_TAXONOMY_VERSION,
+    taxonomyVersion: record.taxonomyVersion,
     allowedDatasets: Object.freeze(allowedDatasets),
   }));
 };
@@ -132,7 +132,7 @@ export const evaluateClassificationDecision = (
   const checked = validateClassificationDecision(input);
   if (!checked.ok) return checked;
   const decision = checked.value;
-  // Both validators currently support only this exact provisional taxonomy.
+  // Exact match only. Supported versions are never aliases for one another.
   if (decision.taxonomyVersion !== definition.taxonomyVersion) return failure('unsupported_policy_taxonomy');
   if (decision.state === 'approved' && !definition.allowedDatasets[decision.assignment.economicRole].includes(decision.dataset))
     return failure('incompatible_assignment');

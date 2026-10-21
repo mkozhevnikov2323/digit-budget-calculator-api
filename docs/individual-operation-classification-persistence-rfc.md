@@ -1,9 +1,23 @@
-# RFC C2.2 — индивидуальная классификация: persistence и план миграции
+# RFC C2.2 / C3.1 — индивидуальная классификация: persistence и план миграции
 
-**Статус: PROPOSAL / docs-only; каждое новое техническое решение ожидает owner approval.**
-Обновление существующего Draft [PR #17](https://github.com/mkozhevnikov2323/digit-budget-calculator-api/pull/17).
-Ни этот документ, ни его merge не разрешают реализацию, миграцию, deployment или доступ к production.
-Ниже «требуется» описывает условия предлагаемого будущего решения, а не текущую авторизацию.
+**Статус: D1–D10 APPROVED проектным владельцем в задании C3.1, 2026-10-21.**
+Исходный RFC: [PR #17](https://github.com/mkozhevnikov2323/digit-budget-calculator-api/pull/17), уже merged.
+Это архитектурное утверждение, а не разрешение deployment, production-доступа или включения writes.
+
+Выбраны: Option A (conservative freshness с указанными race/ABA ограничениями), SHA-256
+source fingerprint v1, current-record audit v1 вместо append-only history, D3 matrix,
+exact stable taxonomy `financial-classification-v1` и полный unique tuple index.
+
+C3.1 реализует изолированную модель, manifest, strict mapper и тесты; HTTP/read-freshness/CAS/
+idempotency handlers не реализуются. Новые коллекция/validator/index устанавливаются только
+в одноразовых тестовых БД. Source expense/income документы и их модели не меняются.
+
+**Операционные gates остаются обязательны и UNVERIFIED для production:** topology/FCV и
+privileges, backup/restore/RPO/RTO, конкретная migration execution, account erasure/retention,
+restore/reuse policy, rollout/rollback и readiness всех instances. Утверждение D9 не подтверждает
+готовность erasure workflow или конкретные операционные сроки. До этих проверок writes отсутствуют.
+Точный executable-data manifest: `persistence/classificationManifest.ts`; operational checklist:
+`docs/classification-persistence-readiness.md`. Manifest сам не исполняет DB operations.
 
 ## 1. Основания и границы согласования
 
@@ -15,7 +29,7 @@
 - Будущее хранение — отдельно от существующих expense/income; исходные документы не меняются.
 - Правила, автоматизация и массовое применение — отдельные этапы.
 
-### Проверенные факты репозитория
+### Исторические проверенные факты на этапе C2.2
 
 Проверен backend `main` **`8d73d0524d83b316adba5fd6dd576971f64fc441`**, включая merged PR #18:
 
@@ -34,11 +48,11 @@ Production MongoDB version, topology, sharding, privileges, backups и transacti
 Проверки репозитория не являются проверкой живого сервера. Базы данных не открывались.
 `__v` при текущих PATCH не является гарантированным счётчиком каждой правки; `updatedAt` не CAS.
 
-## 2. Точный кандидат документа и граница C2.1
+## 2. Утверждённый документ и граница domain/persistence
 
-Предлагается одна текущая запись в **`operation_classifications`** после явного ручного решения.
+Утверждена одна текущая запись в **`operation_classifications`** после явного ручного решения.
 Отсутствие записи — `unreviewed`, без фиктивного default document и без backfill старых операций.
-Это не Mongoose model и не публичный DTO. Все поля обязательны, кроме условного `assignment`.
+Таблица задаёт persistence envelope, не публичный DTO. Все поля обязательны, кроме условного `assignment`.
 
 | Поле | Предлагаемый BSON / ограничения | Семантика |
 | --- | --- | --- |
@@ -50,7 +64,7 @@ Production MongoDB version, topology, sharding, privileges, backups и transacti
 | `assignment` | Single nested object, без собственного `_id`, без default | Обязателен только у `approved`; иначе поле полностью отсутствует. |
 | `assignment.economicRole` | String enum семи ролей из §3 | `unknown` запрещён. |
 | `assignment.layer` | Один из пяти layer codes либо явный BSON null | У `ordinary_expense` один supported layer; у остальных строго null. Поле не отсутствует внутри assignment. |
-| `taxonomyVersion` | Exact registered String, non-null, без default | Первый стабильный кандидат: `financial-classification-v1`, только после утверждения §3. |
+| `taxonomyVersion` | Exact registered String, non-null, без default | Только `financial-classification-v1`; provisional нельзя сохранять. |
 | `decisionOrigin` | String literal `manual`, non-null | Никаких `automatic/category_rule`; устанавливает сервер после явного действия. |
 | `decisionRevision` | BSON int/long/double; математически целое `1..9007199254740991` | Серверный monotonic CAS только решений; в JS только safe integer. Не Decimal128/string. |
 | `sourceFingerprint` | String, ровно 64 lowercase hex | SHA-256 по каноническому source tuple §4, не исходные финансовые поля. |
@@ -68,9 +82,9 @@ default layer, default state или default taxonomy. Нет сумм, дат о
 recipient, source label, comment, email, headers, JWT или свободных error metadata.
 `sourceObservedAt` — operational timestamp, не копия source date.
 
-### 2.1. Предлагаемые Mongoose и DB constraints
+### 2.1. Утверждённые Mongoose и DB constraints
 
-- Существующий CommonJS/incremental TS сохраняется. Будущая schema: `strict:'throw'`,
+- Существующий CommonJS/incremental TS сохраняется. C3.1 schema: `strict:'throw'`,
   `strictQuery:'throw'`, `versionKey:false`, `autoCreate:false`, `autoIndex:false`.
   Обычный Mongoose cast не считается boundary validation: валидировать unknown до casting,
   иначе Number/String/ObjectId могут скрыто принять чужой тип.
@@ -89,13 +103,13 @@ recipient, source label, comment, email, headers, JWT или свободных 
   затем строит собственный ограниченный update. Клиентские Mongo operators/filters/replacement
   не принимаются. Timestamp handling явно покрывается тестами; auto timestamps не должны
   сбрасывать createdAt при replace/upsert. Счётчик не подменяется `optimisticConcurrency/__v`.
-- После отдельного approval миграция ставит collection validator (`validationLevel:strict`,
+- Отдельно разрешённая operational migration ставит collection validator (`validationLevel:strict`,
   `validationAction:error`): закрытая `$jsonSchema`, required/enum/BSON type/range/integer
   constraints и условие state/assignment/role/layer. `_id` явно разрешён. Применимость точного
   выражения и обходные DB privileges проверяются в отдельном implementation PR на целевой
   MongoDB версии. DB validator не доказывает ownership, manual confirmation или CAS.
 
-**Индекс-кандидат:** встроенный unique `_id` плюс ровно один дополнительный индекс
+**Утверждённый индекс:** встроенный unique `_id` плюс ровно один дополнительный индекс
 `ux_owner_dataset_operation`: keys **`{owner:1, dataset:1, operationId:1}`**, `unique:true`,
 `sparse:false`, без partial filter/TTL, simple collation. Все три поля required/non-null;
 регистр String ID не создаёт дубликат, поскольку в БД хранятся ObjectId.
@@ -106,32 +120,29 @@ recipient, source label, comment, email, headers, JWT или свободных 
 
 ### 2.2. Соответствие C2.1 — без скрытой смены контракта
 
-C2.1 принимает плоские owner/dataset/operationId, state, assignment, manual origin,
-revision и **только provisional taxonomy**, отвергает все storage fields. Поэтому BSON документ
-нельзя передавать прямо в `validateClassificationDecision`: нужен будущий явный adapter,
-который проверит envelope, преобразует ObjectId, выделит domain projection, затем применит
-версионный validator и business policy. Нельзя молча удалить неизвестную taxonomy ради успешной проверки.
+C3.1 сохраняет структурное поведение provisional C2.1, добавляет exact stable version и
+явную stable D3 policy. Неизвестные версии отвергаются; поддержанные версии не являются aliases.
+Persistence mapper принимает только stable и отдельно проверяет storage fields, BSON identities,
+revision, source/command metadata и timestamps. Никакой silent provisional→stable conversion.
 
-Стабильная `financial-classification-v1` сейчас **отвергается C2.1**. До первых durable writes
-нужен отдельно одобренный переход domain validator/version registry, explicit frontend mapping,
-тесты обеих поддерживаемых версий. Provisional не переименовывается и не объявляется
-эквивалентной стабильной; в первой persistent collection provisional records не предлагаются.
-В этом PR C2.1, его README и тесты не меняются.
+Вся BSON запись не передаётся в domain validator: mapper создаёт явную domain projection.
+Hydrated Mongoose documents не являются unknown-boundary input; read adapter принимает lean/driver
+objects, не выполняет arbitrary toObject/toJSON. Модель проверяет свой внутренний snapshot отдельно.
 
 ## 3. Матрица dataset ↔ economic role и taxonomy
 
-Все строки ниже — **backend proposal awaiting product approval**, даже если совпадают с UI.
+Все строки ниже — **backend matrix APPROVED D3** в C3.1; совпадение с UI не было источником approval.
 Layer-инвариант уже реализован C2.1; dataset mapping там сознательно отсутствует.
 
 | Economic role | Предлагаемые datasets | Layer | Пример / ограничение | Статус mapping |
 | --- | --- | --- | --- | --- |
-| `ordinary_expense` | expenses | Ровно один из пяти | Бензин everyday, ремонт irregular в одной категории «Транспорт». | Совпадает с frontend; отдельное backend approval ещё требуется. |
-| `ordinary_income` | incomes | Только null | Зарплата/оплата труда, не заём/перевод/возврат капитала. | Совпадает с frontend; approval требуется. |
-| `loan_issuance` | expenses | Только null | Пользователь выдал основную сумму займа другому лицу. Полученный пользователем заём этим кодом не покрывается. | Frontend так же; терминология/объём требуют product approval. |
-| `loan_repayment` | incomes | Только null | Пользователю вернули основную сумму ранее выданного займа. Погашение собственного долга и проценты не охвачены этой трактовкой. | Frontend так же; principal/interest и направление требуют approval. |
-| `refund` | incomes | Только null | Возврат покупки продавцом. Не отрицательный расход; не earned income. Исходящие возвраты не покрыты. | Frontend так же; значение и влияние на будущие отчёты требуют approval. |
-| `internal_transfer` | expenses и incomes | Только null | Исходящая/входящая сторона перемещения между своими счетами. | Frontend разрешает обе; определение собственных счетов/парности требует approval. |
-| `capital_movement` | expenses и incomes | Только null | Покупка/продажа инвестиционного principal без утверждения earned income/consumption. | Frontend разрешает обе; principal/gain/fee decomposition требует approval. |
+| `ordinary_expense` | expenses | Ровно один из пяти | Бензин everyday, ремонт irregular в одной категории «Транспорт». | APPROVED D3; ограниченная трактовка примера сохраняется. |
+| `ordinary_income` | incomes | Только null | Зарплата/оплата труда, не заём/перевод/возврат капитала. | APPROVED D3; ограниченная трактовка примера сохраняется. |
+| `loan_issuance` | expenses | Только null | Пользователь выдал основную сумму займа другому лицу. Полученный пользователем заём этим кодом не покрывается. | APPROVED D3; ограниченная трактовка примера сохраняется. |
+| `loan_repayment` | incomes | Только null | Пользователю вернули основную сумму ранее выданного займа. Погашение собственного долга и проценты не охвачены этой трактовкой. | APPROVED D3; ограниченная трактовка примера сохраняется. |
+| `refund` | incomes | Только null | Возврат покупки продавцом. Не отрицательный расход; не earned income. Исходящие возвраты не покрыты. | APPROVED D3; ограниченная трактовка примера сохраняется. |
+| `internal_transfer` | expenses и incomes | Только null | Исходящая/входящая сторона перемещения между своими счетами. | APPROVED D3; ограниченная трактовка примера сохраняется. |
+| `capital_movement` | expenses и incomes | Только null | Покупка/продажа инвестиционного principal без утверждения earned income/consumption. | APPROVED D3; ограниченная трактовка примера сохраняется. |
 
 Пять layers: `everyday`, `irregular`, `emergency`, `major_goals`, `long_term_capital`.
 Последний — слой одобренного ordinary expense, не синоним capital_movement.
@@ -141,7 +152,7 @@ net/dedupe/count counterpart, доказывать «свои счета» ил�
 Непокрытые входящие займы, собственные выплаты долга, проценты, комиссии и исходящие refunds
 остаются explicit_unclassified/unreviewed до отдельного расширения; не втискивать их в ordinary roles.
 
-**Version strategy (proposal):** immutable registry по exact string; стабильная v1 только после
+**Version strategy (APPROVED D4):** immutable registry по exact string; стабильная v1 только после
 утверждения meanings/matrix/layers. Любая смена допустимости/смысла — новая semantic version
 контракта (`financial-classification-v2`), без переинтерпретации старых решений. Добавление
 нового code тоже требует явно поддержанной версии; readers должны знать mapping или fail closed.
@@ -149,7 +160,7 @@ Unknown/retired/несопоставимая версия → blocked, не conf
 отдельно утверждённый mapping либо ручное повторное подтверждение с новой revision.
 Fingerprint, storage evolution, command digest и taxonomy version независимы; silent defaults нет.
 
-## 4. Canonical source fingerprint v1 (предложение)
+## 4. Canonical source fingerprint v1 (APPROVED D6)
 
 Цель — обнаруживать изменение **прочитанных review-значимых значений**, а не доказать отсутствие
 всех промежуточных правок. SHA-256 реализуем штатным `node:crypto`, без новой зависимости.
@@ -157,7 +168,7 @@ Digest не анонимизирует финансовые данные и не
 его или canonical bytes, не включать в metric labels; доступ как к приватному финансовому metadata.
 HMAC-SHA-256 лучше защищает от offline guessing при утечке digest, но требует key ID, secret
 management, rotation и стратегии reread старых ключей. Для первого варианта рекомендуем обычный
-SHA-256 при закрытом хранении и явном принятии этого риска; выбор требует owner approval.
+SHA-256 при закрытом хранении; риск принят владельцем по D6, safeguards остаются обязательны.
 
 **Точная предлагаемая канонизация:** fixed-order JSON tuple, UTF-8 bytes от ECMAScript
 `JSON.stringify`, без locale и object-key sorting. Никаких raw BSON/Mongoose `toJSON` hooks:
@@ -225,7 +236,7 @@ money storage/precision вне scope. v2 читает запись по её я�
    При успехе состояние read-only повторно оценивает freshness, §6. Даже same-value новая ручная
    команда увеличивает revision; cleared никогда не удаляет запись ради сброса счётчика.
 
-**Дедупликация без второй коллекции (рекомендация awaiting approval):**
+**Дедупликация без второй коллекции (APPROVED D7, handlers ещё не реализованы):**
 `lastMutation` записывается атомарно с initial insert/CAS. commandFingerprint — SHA-256 fixed-order
 UTF-8 JSON tuple с отдельным префиксом `budget-classification-command`, version=1, canonical tuple
 identity, requestId, expectedRevision, expected source fingerprint/version, taxonomy, manual origin,
@@ -268,7 +279,7 @@ storage в транзакции, новые retention/index decisions. Не об
 | Topology | Per-document atomicity, подходит standalone; production совместимость ещё проверяется. | Replica set либо supported sharded transaction topology, sessions, concerns, retry/abort и failover tests. Production readiness неизвестна; текущий standalone CI недостаточен. |
 | Гарантия | Решение и показанные факты совпадают на момент наблюдения; нет общей linearizable snapshot/atomic source+decision guarantee. | Согласованность на точке commit только при полном участии **всех** writers и реальном write conflict/fence. Простого read transaction недостаточно при write skew. |
 
-**Рекомендация awaiting owner approval: Option A для первого ограниченного release**: сохраняет
+**Выбран владельцем: Option A для первого ограниченного release**: сохраняет
 исходные модели/контроллеры, минимален для текущего стека. Это осознанный компромисс, а не
 strict financial snapshot. Если недопустима даже временная stale запись/гонка в отображении,
 первый write release блокируется до отдельно согласованного Option B, topology и изменения writer paths.
@@ -298,7 +309,7 @@ Mismatch → effective `stale`; malformed/unsupported → effective blocked, н�
 
 Из существующего состояния пользователь может явно approve, leave unclassified или clear по
 ожидаемой revision и текущим source facts. Cleared на unreviewed допустим как первая ручная
-reset-запись revision=1 (proposal), но не создаётся автоматически. Stale/blocked не стираются
+reset-запись revision=1 (APPROVED D1), но не создаётся автоматически. Stale/blocked не стираются
 фоновой задачей. Нет временного «истечения» без отдельной approved TTL policy: любое будущее
 expiry должно fail closed; этот RFC не вводит TTL решений.
 
@@ -356,7 +367,7 @@ expiry должно fail closed; этот RFC не вводит TTL решени
 | Одна текущая запись, revision/timestamps/lastMutation | Последнее состояние, порядок успешных CAS и bounded retry; **не** полная история и не forensic audit. | Работает без cross-document transactions. Backup возвращает последнее доступное состояние; утраченные промежуточные решения не восстановить из revision. |
 | Append-only decision events + current projection | Полная история только если каждый CAS и event атомарны, с уникальностью identity+revision и idempotency protocol. | Отдельная collection/index/retention; transaction-capable topology, writer privileges, consistency/replay tests и backup обеих коллекций. Само название append-only не делает журнал tamper-proof; нужны ACL/операционные меры. |
 
-**Рекомендация awaiting approval:** одна текущая запись для первого limited release с честным
+**Выбран APPROVED D8:** одна текущая запись для первого limited release с честным
 отказом от complete audit. Если нужна история уже до первого durable write, release блокируется
 до отдельного event/transaction design; best-effort async event не равен гарантированному аудиту.
 `cleared` сохраняет непрерывность текущей revision, а не все прошлые assignments.
@@ -377,31 +388,30 @@ Backup restore не должен незаметно воскресить erased 
 
 ## 10. Таблица решений для явного owner approval
 
-Все approvals ниже **PENDING**. Выполнение C2.2 не отмечает их как принятые.
+Все D1–D10 **APPROVED** владельцем в C3.1. Последний столбец сохраняет scope утверждения; production evidence и выполнение rollout не утверждаются этой таблицей.
 
-| ID / предложенное решение | Альтернатива | Рекомендация | Основной риск | Требуется approval владельца |
+| ID / предложенное решение | Альтернатива | Рекомендация | Основной риск | Утверждённый scope / отдельные operational gates |
 | --- | --- | --- | --- | --- |
-| D1: schema §2, manual-only, cleared сохраняется | Поля внутри source / physical delete решения | Отдельная current collection, без backfill | Orphans, нет FK/full history | Да: exact envelope, состояния, initial clear semantics. |
-| D2: unique owner/dataset/operationId | Неуникальный/partial индекс | Required tuple, full unique index | Migration/шардинг/неполный индекс | Да: namespace, validator, index manifest, unsharded precondition. |
-| D3: матрица §3 | Расширить направления loans/refunds | Узкий вариант frontend как кандидат; неподдержанное не классифицировать | Неверный смысл долга/transfer/capital | Да: каждая строка и неподдержанные операции. |
-| D4: stable financial-classification-v1 | Persist provisional либо иная taxonomy | Новый immutable registry после утверждения meanings | Сейчас отвергается C2.1, нужен отдельный adapter/domain PR | Да: версия, compatibility и explicit migration rules. |
-| D5: Option A | Option B до первого write | A, только с принятым race/ABA/read-snapshot ограничением | Временная stale запись/отображение | Да: допустимость риска; иначе блокировать release до B. |
-| D6: SHA-256 canonical v1 §4 | HMAC с keys/rotation либо иной source token | SHA-256 без raw facts в metadata | Digest не анонимизация; A→B→A не обнаруживается | Да: поля, precision/null/absent, алгоритм/версия и privacy. |
-| D7: bounded lastMutation retry §5 | Durable ledger / event transactional dedupe | Последняя команда + CAS, без exactly-once claims | Нет вечного replay/detection всех reused IDs | Да: envelope/ограничения, reuse/error semantics. |
-| D8: current record audit | Append-only events с первого write | Current-only limited release | История промежуточных решений утрачивается | Да: допустим ли limited audit, иначе отдельный дизайн. |
-| D9: orphan/account/backup retention | TTL/cascade/долгое хранение | Без автоматики до точной approved erasure/retention policy | Privacy, restore resurrects erased data | Да: сроки, account-deletion interlock, restore/reuse policy до rollout. |
-| D10: migration §8 | Auto-create/index при bootstrap | Approved manual manifest, dry-run, verified backup, default-off writes | Несовпадение окружения, interruption | Да: конкретное окружение, оператор, backup/RPO/RTO, rollout/rollback gates. |
+| D1: schema §2, manual-only, cleared сохраняется | Поля внутри source / physical delete решения | Отдельная current collection, без backfill | Orphans, нет FK/full history | APPROVED design: exact envelope, состояния, initial clear semantics. |
+| D2: unique owner/dataset/operationId | Неуникальный/partial индекс | Required tuple, full unique index | Migration/шардинг/неполный индекс | APPROVED design: namespace, validator, index manifest, unsharded precondition. |
+| D3: матрица §3 | Расширить направления loans/refunds | Узкий вариант frontend как кандидат; неподдержанное не классифицировать | Неверный смысл долга/transfer/capital | APPROVED design: каждая строка и неподдержанные операции. |
+| D4: stable financial-classification-v1 | Persist provisional либо иная taxonomy | Новый immutable registry после утверждения meanings | C3.1 добавляет stable и explicit mapper; aliases запрещены | APPROVED design: версия, compatibility и explicit migration rules. |
+| D5: Option A | Option B до первого write | A, только с принятым race/ABA/read-snapshot ограничением | Временная stale запись/отображение | APPROVED design: допустимость риска; иначе блокировать release до B. |
+| D6: SHA-256 canonical v1 §4 | HMAC с keys/rotation либо иной source token | SHA-256 без raw facts в metadata | Digest не анонимизация; A→B→A не обнаруживается | APPROVED design: поля, precision/null/absent, алгоритм/версия и privacy. |
+| D7: bounded lastMutation retry §5 | Durable ledger / event transactional dedupe | Последняя команда + CAS, без exactly-once claims | Нет вечного replay/detection всех reused IDs | APPROVED design: envelope/ограничения, reuse/error semantics. |
+| D8: current record audit | Append-only events с первого write | Current-only limited release | История промежуточных решений утрачивается | APPROVED design: допустим ли limited audit, иначе отдельный дизайн. |
+| D9: orphan/account/backup retention | TTL/cascade/долгое хранение | Без автоматики до точной approved erasure/retention policy | Privacy, restore resurrects erased data | APPROVED design: сроки, account-deletion interlock, restore/reuse policy до rollout. |
+| D10: migration §8 | Auto-create/index при bootstrap | Approved manual manifest, dry-run, verified backup, default-off writes | Несовпадение окружения, interruption | APPROVED design: конкретное окружение, оператор, backup/RPO/RTO, rollout/rollback gates. |
 
 Future rules остаются только proposals в отдельном RFC; этот документ не утверждает их
 хранение, precedence engine, bulk approvals, AI/OCR или новые финансовые отчёты.
 
 ## 11. Проверки этого PR и будущие acceptance gates
 
-Сейчас: только документация; `git diff --check`, сравнение названий/инвариантов с фактическими
-C2.1 и source models/controllers, анализ существующей Node/Mongoose/CI topology.
-Никаких локальных npm install/build/test, MongoDB calls, bootstrap или migration execution.
-Если обновление PR запускает CI — проверить оба jobs и фактический TAP, включая parent failures,
-skips/cancellations и cleanup. Существующий CI не тестирует предлагаемую persistence архитектуру.
+C3.1: npm ci/typecheck/build/test, focused unit/integration и полный integration runner
+на dedicated disposable MongoDB. Проверяются actual TAP, parent suites, skips/cancellations и
+cleanup. MongoDB operations не выполняются на production/development application DB.
+Модель не импортируется из app/server; implicit collection/index creation отключены.
 
 Будущие implementation PR отдельно проверяют: strict envelope до Mongoose cast и DB validator,
 все матричные роли, null/absent/empty, canonical vectors (binary64/date/Unicode/field order),
@@ -411,4 +421,4 @@ stale/blocked reads, orphan/erasure/restore, interrupted migration и non-destru
 Для B дополнительно обязательны replica-set tests, real source-fence write conflicts, transaction
 abort/retry/failover; green standalone CI не доказательство B.
 
-**Не реализовывать MongoDB изменения и не объединять PR без архитектурного review и явной авторизации.**
+**Не выполнять production migration/deployment, не включать writes и не объединять C3.1 PR без review.**
