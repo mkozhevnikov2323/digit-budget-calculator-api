@@ -103,9 +103,13 @@ No operational DB checks or migration were run by C3.1. No migration script exis
 4. Future dry-run must report namespace existence/options/indexes/emptiness using
    bounded reads without financial values. Absent collection is expected. An
    unexpected nonempty/mismatching namespace means STOP; do not delete/dedupe/repair.
-5. Keep application writes disabled on every instance. Currently routes/services
-   do not exist, so writes are unavailable; no new feature flag/config is added.
-   Future rollout needs a default-off kill switch and drained/incompatible writers.
+5. Keep application writes disabled on every instance. Application routes/startup
+   do not import the write service. C3.3a adds only an explicitly constructed internal
+   service, with no production trust adapter or route; see
+   [its contract and blockers](classification-write-service.md). No write feature
+   flag/config is enabled by either PR.
+   Future rollout needs a default-off kill switch, drained/incompatible writers
+   and administrative exclusion of concurrent DDL/restore during writes.
 6. Under separately authorized maintenance, create an empty collection with the
    **exact** manifest options/validator, then build its named full unique index.
    No source backfill, autoIndex, autoCreate, bootstrap migration or index sync.
