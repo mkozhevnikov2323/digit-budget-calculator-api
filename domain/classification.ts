@@ -1,6 +1,9 @@
-/** Pure provisional domain contract. No IO, authorization, persistence or inference. */
+/** Pure versioned domain contract. No IO, authorization, persistence or inference. */
 export const PROVISIONAL_TAXONOMY_VERSION = 'financial-layers-v1-provisional' as const;
-export type TaxonomyVersion = typeof PROVISIONAL_TAXONOMY_VERSION;
+export const STABLE_TAXONOMY_VERSION = 'financial-classification-v1' as const;
+export type TaxonomyVersion = typeof PROVISIONAL_TAXONOMY_VERSION | typeof STABLE_TAXONOMY_VERSION;
+export const isSupportedTaxonomyVersion = (value: unknown): value is TaxonomyVersion =>
+  value === PROVISIONAL_TAXONOMY_VERSION || value === STABLE_TAXONOMY_VERSION;
 
 export const ECONOMIC_ROLES = Object.freeze([
   'ordinary_expense', 'ordinary_income', 'loan_issuance', 'loan_repayment',
@@ -126,14 +129,14 @@ export const validateClassificationDecision = (input: unknown): ValidationResult
   const record = checked.value;
   const identity = identityFrom(record);
   if (!identity.ok) return identity;
-  if (record.taxonomyVersion !== PROVISIONAL_TAXONOMY_VERSION) return failure('unsupported_taxonomy');
+  if (!isSupportedTaxonomyVersion(record.taxonomyVersion)) return failure('unsupported_taxonomy');
   if (record.decisionOrigin !== 'manual') return failure('invalid_decision_origin');
   const revision = validateDecisionRevision(record.decisionRevision);
   if (!revision.ok) return revision;
   if (record.state !== 'approved' && record.state !== 'explicit_unclassified' && record.state !== 'cleared')
     return failure('invalid_state');
   const base: DecisionBase = {
-    ...identity.value, taxonomyVersion: PROVISIONAL_TAXONOMY_VERSION,
+    ...identity.value, taxonomyVersion: record.taxonomyVersion,
     decisionOrigin: 'manual', decisionRevision: revision.value,
   };
   if (record.state === 'approved') {

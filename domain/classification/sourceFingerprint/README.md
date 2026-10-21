@@ -1,9 +1,18 @@
 # Experimental source fingerprint foundation (C2.4)
 
+> C3.1 update (2026-10-21): the owner approved RFC D1–D10, selecting Option A,
+> SHA-256 v1 and current-record audit. Production operational gates remain unverified.
+> C2.1 now accepts exact provisional and stable taxonomy versions without conversion;
+> C2.3 still requires explicit matching policy. Stable D3 policy is defined separately
+> in `stablePolicy.ts`; only stable records may pass the isolated persistence boundary.
+> No application routes/writes are enabled.
+
+
 `domain/classification/sourceFingerprint.ts` is standalone strict TypeScript,
 compiled to CommonJS. It imports built-in `node:crypto` and the existing C2.1
 identity validator only. No app/model imports, IO, logging or persistence.
-It is **not connected to live operations** and does not approve RFC D1–D10.
+It is **not connected to live operations**. Architecture approval recorded in C3.1
+does not grant this module operational access or enable application writes.
 
 ## Boundary and API
 
@@ -91,7 +100,8 @@ SHA-256 is not encryption, authorization, a signature or anonymization. Low-entr
 financial facts can be guessed offline if digests leak. Do not log fingerprints,
 preimages or raw facts, or use them as public IDs/metric labels. HMAC/key management
 is a separately proposed alternative; no production fingerprint configuration is
-created. D6 still needs approval of fields, version, privacy and algorithm.
+created. D6 was approved in C3.1; production operation and privacy safeguards still require
+verified operational readiness.
 
 Matching means equal observed canonical facts subject to hash collision limits.
 It does not prove unchanged edit history: **A→B→A produces the same fingerprint**.
@@ -106,7 +116,7 @@ does not count every such PATCH, and updatedAt is neither a collision-free revis
 nor an atomic CAS protocol. Neither is included in the canonical facts.
 PATCH/DELETE can race after any source read and before a classification write or
 response. This pure module cannot close that window. RFC Option A's conservative
-stale detection and tolerated race remain awaiting approval. Option B requires
+stale detection and tolerated race were selected by the owner in C3.1. Option B requires
 separate writer/fence/transaction changes and verified topology; none is implemented.
 
 A future owner-scoped adapter must be separately reviewed: derive owner from the
@@ -121,7 +131,7 @@ approved freshness protocol; unavailable/invalid/version-unsupported facts fail
 closed and cannot silently remain confirmed. Test deletion/ownership/restore races
 and privacy independently; no future adapter is added here.
 
-D1–D10 remain pending: storage/indexes, role matrix/stable taxonomy, consistency,
+D1–D10 were approved in C3.1; operational gates remain: storage/indexes, role matrix/stable taxonomy, consistency,
 fingerprint/idempotency, audit/retention/erasure and migration/rollout. C2.1/C2.3
 behavior, money logic, recurrence, HTTP, authentication and frontend are unchanged.
 

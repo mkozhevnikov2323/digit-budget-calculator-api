@@ -4,7 +4,7 @@ const { tap } = require('node:test/reporters');
 const { pipeline } = require('node:stream/promises');
 
 const defaults = ['mongodb-integration-safety.test.cjs', 'financial-ownership.integration.test.cjs',
-  'recurrence-read.integration.test.cjs']
+  'recurrence-read.integration.test.cjs', 'classification-persistence.integration.test.cjs']
   .map(filename => path.join(__dirname, filename));
 
 async function main() {

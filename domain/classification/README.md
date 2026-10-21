@@ -1,6 +1,14 @@
 # Classification domain foundation (C2.1)
 
-`domain/classification.ts` is a pure, synchronous, provisional TypeScript module
+> C3.1 update (2026-10-21): the owner approved RFC D1–D10, selecting Option A,
+> SHA-256 v1 and current-record audit. Production operational gates remain unverified.
+> C2.1 now accepts exact provisional and stable taxonomy versions without conversion;
+> C2.3 still requires explicit matching policy. Stable D3 policy is defined separately
+> in `stablePolicy.ts`; only stable records may pass the isolated persistence boundary.
+> No application routes/writes are enabled.
+
+
+`domain/classification.ts` is a pure, synchronous, versioned TypeScript module
 compiled to CommonJS. It imports nothing, performs no IO and is not wired into
 the application. This is neither a MongoDB document schema nor a public API DTO.
 
@@ -28,10 +36,10 @@ the application. This is neither a MongoDB document schema nor a public API DTO.
   not establish authority or perform incrementing, historical ordering or CAS.
   It cannot substitute for MongoDB `__v`, `updatedAt`, a source revision, frontend
   `caller_local` revision, session generation or recurrence algorithm version.
-- The only supported version is `financial-layers-v1-provisional`, mirroring the
-  inspected frontend vocabulary. This explicitly provisional **domain** version
-  does not approve a stable server taxonomy, persistence/wire format or compatibility
-  with frontend decision objects. Missing/future/other versions fail closed.
+- Supported versions are exactly `financial-layers-v1-provisional` and
+  `financial-classification-v1`; the supplied version is preserved, never converted.
+  Stable v1 was approved in C3.1. Support for both does not imply frontend wire
+  compatibility or permission to persist provisional. Missing/future versions fail closed.
 
 `validateOperationIdentity`, `validateDecisionRevision`,
 `validateClassificationAssignment`, `validateClassificationDecision` take
@@ -71,41 +79,32 @@ suggestions; an explicitly unclassified operation must not be silently approved.
 - `unreviewed`: conceptual absence of a decision record, not an accepted decision
   state or a fabricated default record. No DB records are created here.
 
-## Decisions still open
+## Approved design and remaining boundaries
 
-Inspected backend main: `b550ac8afc7164768507b35bece0c6a555a46929`.
-[RFC #17](https://github.com/mkozhevnikov2323/digit-budget-calculator-api/pull/17)
-was an open draft, not merged, at implementation time. Its document was inspected
-at `ba5bd12ec3f68ca052bc9111f4b99be433d1d4a5`, path
-`docs/individual-operation-classification-persistence-rfc.md`. Its proposed
-collection/index/model is not approved by C2.1.
+The owner approved RFC D1–D10 in C3.1 (2026-10-21), selecting Option A,
+SHA-256 source fingerprint v1 and one current decision record without full audit
+history. The current RFC is `docs/individual-operation-classification-persistence-rfc.md`.
+The stable D3 matrix is explicit in `stablePolicy.ts`, not implicit in this structural
+validator. The separate persistence mapper accepts only stable taxonomy and checks
+its own storage envelope; storage fields remain unexpected in a domain decision.
 
-Still require separate architectural approval:
+C3.1 adds the isolated Mongoose model/manifest/mapper and disposable-DB tests.
+It adds no HTTP endpoints, app writes, CAS handlers, migrations or frontend logic.
+No source financial model or existing calculations are changed. Structural validation
+still proves neither financial interpretation nor authorization/freshness.
 
-- Dataset ↔ economic role compatibility matrix. **Validation is intentionally
-  structural, not business approval of every role/dataset combination.** The
-  frontend's provisional matrix is not imported as backend policy. Do not expose
-  this validator as a sufficient write-API guard before this policy is agreed.
-- Stable server taxonomy/version evolution and explicit frontend mapping.
-- MongoDB schema, unique index, migration/backup/rollback and topology.
-- Source fingerprint representation/version, canonical facts, algorithm,
-  confidentiality and freshness/conflict behavior. No fingerprint type/field is
-  accepted yet: accepting arbitrary strings would imply unsupported guarantees.
-- Conservative stale detection vs strict cross-collection consistency with source
-  PATCH/DELETE; transactions/source revision, CAS and retry/idempotency protocols.
-- Full append-only audit history, orphan/retention policy and future rules.
+Production namespace/topology, backup/restore, erasure/retention, exact migration
+execution and rollout remain unverified. See `docs/classification-persistence-readiness.md`.
+Source PATCH/DELETE races remain possible under the approved Option A; model/storage
+validation cannot close them or establish an unchanged source edit history.
 
-No BSON schema, indexes, models, routes, authentication, calculations, recurrence
-engine or frontend files are changed. No money/date processing, persistence,
-source hashing or recommendations are implemented.
+## Next steps (separately authorized implementation/operations)
 
-## Next steps (separate approvals)
-
-1. Approve the MongoDB schema and index migration.
-2. Add an owner-scoped classification read API.
-3. Agree source freshness and decision concurrency protocols.
-4. Add a safe write API after compatibility, consistency and audit decisions.
-5. Integrate frontend review with explicit approval and stale/conflict handling.
+1. Verify operational gates and explicitly authorize any production installation.
+2. Add an owner-scoped classification read API and Option A stale handling.
+3. Implement safe writes/CAS/idempotency under the approved protocol, with race tests.
+4. Integrate frontend review with explicit confirmation and stale/conflict handling.
+5. Keep full audit history and future rule/automation work separate.
 
 ## Verification
 

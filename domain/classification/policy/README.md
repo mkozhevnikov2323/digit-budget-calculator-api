@@ -1,9 +1,18 @@
 # Explicit classification business policy (C2.3)
 
+> C3.1 update (2026-10-21): the owner approved RFC D1–D10, selecting Option A,
+> SHA-256 v1 and current-record audit. Production operational gates remain unverified.
+> C2.1 now accepts exact provisional and stable taxonomy versions without conversion;
+> C2.3 still requires explicit matching policy. Stable D3 policy is defined separately
+> in `stablePolicy.ts`; only stable records may pass the isolated persistence boundary.
+> No application routes/writes are enabled.
+
+
 `domain/classification/policy.ts` is pure, synchronous TypeScript compiled to
 CommonJS. It imports only C2.1, performs no IO and is not connected to the app.
-It has no production matrix, policy registry, implicit fallback or global mutable
-policy selection. The RFC candidate matrix exists **only in the synthetic tests**.
+The generic evaluator has no implicit matrix, registry, fallback or global mutable
+policy selection. C3.1 defines the explicitly selected stable D3 matrix separately
+in `stablePolicy.ts`. The RFC candidate matrix exists **only in the synthetic tests**.
 
 ## Two separate validations
 
@@ -23,7 +32,8 @@ Policy definition fields (all required, no defaults):
   identity uniqueness, product approval or where a definition came from.
 - `policyVersion`: exactly `dataset-role-compatibility-v1`, the supported policy
   **structure** version, not approval of any matrix.
-- `taxonomyVersion`: exactly `financial-layers-v1-provisional`.
+- `taxonomyVersion`: exactly provisional or stable; must match the evaluated decision
+  exactly. Supporting both does not declare the versions equivalent.
 - `allowedDatasets`: a complete map for all seven C2.1 economic roles. Each value
   is a dense ordinary array of zero, one or two distinct `expenses`/`incomes`
   strings. `[]` explicitly denies both; omission is rejected, never a default deny
@@ -71,26 +81,28 @@ freshness, CAS, persistence or that the chosen economic role is financially corr
 
 ## Future controller boundary and unresolved architecture
 
-After separate product/architecture approval, a trusted backend caller would
+A future trusted backend caller would
 validate its explicitly chosen immutable definition, handle failure, and pass the
 successful value to each evaluation. It must independently enforce server owner,
 source existence/freshness and any approved write protocol. No controller is wired
-up here, and **no default production policy is authorized**.
+up here. The generic evaluator has no default; the isolated durable boundary
+explicitly selects the approved stable D3 policy.
 
 Reference: merged [RFC #17](https://github.com/mkozhevnikov2323/digit-budget-calculator-api/pull/17),
 `docs/individual-operation-classification-persistence-rfc.md`, backend baseline
 `01168dae272b71718195c5bba4ad525b018ac022`.
-Its D1–D10 decisions remain PENDING:
+Its D1–D10 decisions were approved in C3.1; their operational execution is not authorized
+by domain/policy validation:
 
 - D1–D2: persistence schema/states/index/migration preconditions.
 - D3–D4: approved dataset/role matrix and stable taxonomy/mapping.
 - D5–D7: source consistency, fingerprint and idempotency/CAS protocols.
 - D8–D10: audit, retention/erasure/backup and migration/rollout/rollback.
 
-`financial-classification-v1` is still rejected by both C2.1 and policy validation.
-The RFC's future stable version is not an alias for provisional. Multi-version
-domain support, explicit mapping and migration need a separate reviewed PR.
-This module does not settle any persistence decision or authorize database writes.
+`financial-classification-v1` is supported explicitly in C3.1, with no alias or
+automatic mapping from provisional. Persistence accepts only stable. Any future
+version, mapping or migration needs a separate reviewed change.
+This module alone does not authorize database writes or operational rollout.
 
 ## Verification
 
