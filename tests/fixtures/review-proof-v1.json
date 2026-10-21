@@ -1,0 +1,33 @@
+{
+  "generator": "Python cryptography AESGCM; compact json.dumps; fictional public test material only",
+  "keyHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "nonceHex": "000102030405060708090a0b",
+  "kid": "test-old",
+  "deploymentId": "fixture-world-v1",
+  "claims": {
+    "proofVersion": 1,
+    "purpose": "manual-classification-review",
+    "audience": "classification-command-v1",
+    "deploymentId": "fixture-world-v1",
+    "proofId": "23456789-2345-4345-9345-23456789abcd",
+    "actor": "aaaaaaaaaaaaaaaaaaaaaaaa",
+    "credentialBinding": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "browserReviewContext": "34567890-3456-4456-a456-34567890abcd",
+    "dataset": "expenses",
+    "operationId": "111111111111111111111111",
+    "sourceFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sourceFingerprintVersion": 1,
+    "taxonomyVersion": "financial-classification-v1",
+    "kind": "manual_classification",
+    "state": "approved",
+    "assignment": {
+      "economicRole": "ordinary_expense",
+      "layer": "everyday"
+    },
+    "expectedRevision": null,
+    "requestId": "12345678-1234-4234-8234-123456789abc",
+    "issuedAt": 1700000000,
+    "expiresAt": 1700000300
+  },
+  "reviewProof": "crp1.test-old.AAECAwQFBgcICQoL.PCCmaaqKpE3oM-Ti3odaV7L6pUSFCS8TSwLHvz8EYdx0ccLRzK1z6wfNGYTr5lxRgTdN_z-gyr9ItQY7eZaRh5VSpR_x6wQCcDXZHYbpZ4tZ_qANGE4wB5CQ_6Ic3c-86dR7gsExpHXncVvcPDxFXYBFBMKbsVDoKNIgovCKCiPNYyLqlqe5PGeHAcUf4G7wBcDWAwIpqme-bNxC1-ba2qa6pybdyuFMlFfozOi4v9r_ra4Ap4kS3xGwsuVL59aSci3rm2y8t6hWN7KH2yC45YAfmRdcYZjdU_LooiUt4Y4qQrjtj05nTDwgmjKXcx4zyvHbF_9S68d1CQUR6f4g43azkPL_uCpcFb0QZdVPWGi41qiv4unjzRNNDzNoltgpY2G8KtinrHXwXlg4aLeM8fq4NCk68b1F_Ud0c-B-Koe98AdeqVpa2pfVTRdl6i1PoC7isrEgsT1_jhlSuIdlzG0az-69bUKqQszAAbuXBknwnGwcmtM64_qdRLmyJDxBh6_itvdiob3VGZERdyQwvcA6XYquEWPlDCHvd3zXimcoS2Za8uBgQ5Ga8HCMl8XXPg4Ce3LkRZeXy4qD8oklWhsbz7zPNt4cinuBNpD1tDAI6wozovt_XSKk29FwnufVeI5IYPbyvq8wy2Xsic2M4fHNsPtcz4BB1mPwPKaJMn2DQMiL0ESuNCT9iBNddxPI9dtVTjgeoMfmCi4VjWUykhhuTuiCKN1yZrEl1aMANc98jfFWw6QaBmOGRu3pTOsiAISsZ1dhQyW_zpv1tbphpWz_8NA3s9OC12HPxE-HSLHWM-RDvB7X90Hys-0ySvQmDfIwSBaGm75rYnt9q7PDCAnz7DPFqn-_eqsDUtAFdrYLHubfdUT5jxK104Hy37qi8fEuQ3k5BwPSXbjedzJXpkNjqdwOorjV_8JSXaYCaXU53vwuKkKoQRZmJMyvknfiDyJNPMck-tikivzilaKio98nWLiYjknsLey2NMLkKJp0KV1p0zKb2oLSirXqX6i838Ywb_005MGrvHuHCT24zq6yIlDI5ZHHA9HeYreNpqiA42s3R-w_umfR1OjCRWL51DB3n0eqseAGRPSfSw.ZX8DPNTa-6GimHvGxfCM2Q"
+}
