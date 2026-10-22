@@ -13,7 +13,7 @@ const fresh = () => ({ http: { GET: 0, POST: 0, OPTIONS: 0, OTHER: 0 }, response
 const percentile = (a, p) => a.length ? [...a].sort((a, b) => a - b)[Math.max(0, Math.ceil(a.length * p) - 1)] : null;
 async function start(count) {
   assert.equal(process.env.BUDGET_PERFORMANCE_TEST, '1'); assert.equal(typeof process.send, 'function'); testConfiguration(process.env);
-  stage = 'harness'; h = await createHarness(process.env); stage = 'seed'; fixture = await installFixture(h, count); stage = 'bson'; baseline = await sourceDigest(h); stage = 'monitor';
+  stage = 'harness'; h = await createHarness(process.env, true); stage = 'seed'; fixture = await installFixture(h, count); stage = 'bson'; baseline = await sourceDigest(h); stage = 'monitor';
   process.env.CLASSIFICATION_HISTORY_READ_ENABLED = '1';
   const client = h.mongoose.connection.getClient(); client.monitorCommands = true;
   const names = new Set(['expenses', 'incomes', 'users', 'operation_classifications']); const pending = new Map();
