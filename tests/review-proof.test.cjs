@@ -2,6 +2,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { createCipheriv, createDecipheriv } = require('node:crypto');
 const { createReviewProofFoundation: create } = require('../dist/domain/classification/reviewProof.js');
+const { validateVerifiedReview } = require('../dist/domain/classification/writeCommand.js');
 const fixture = require('./fixtures/review-proof-v1.json');
 
 // Public fictional test material. Never include tokens, keys, claims or digests in
@@ -59,6 +60,28 @@ const independentlyDecrypt = proof => {
   decipher.setAuthTag(Buffer.from(p[4], 'base64url'));
   return JSON.parse(Buffer.concat([decipher.update(Buffer.from(p[3], 'base64url')), decipher.final()]).toString('utf8'));
 };
+
+describe('separate read-only recovery verification', () => {
+  it('allows expired proof only inside the fixed 24h horizon and never through verify', () => {
+    const h = harness({ issue: { credentialExpiresAt: 4102444800 }, verify: { credentialExpiresAt: 4102444800 } });
+    const p = valid(h.issue()); h.setTime(1700000300);
+    reject(h.verify(p.reviewProof), 'proof_expired');
+    const recovered = valid(h.foundation.verifyRecovery(p.reviewProof, h.handle, command()));
+    equalPrivate(recovered.review, review()); assert.equal(validateVerifiedReview(recovered).ok, false);
+    h.setTime(1700086399); valid(h.foundation.verifyRecovery(p.reviewProof, h.handle, command()));
+    h.setTime(1700086400); reject(h.foundation.verifyRecovery(p.reviewProof, h.handle, command()), 'proof_expired');
+  });
+  it('never relaxes credential expiry, browser binding, intent or GCM authentication for recovery', () => {
+    const h = harness(), p = valid(h.issue()); h.setTime(1700000300);
+    reject(h.foundation.verifyRecovery(changeSegment(p.reviewProof, 4, flipByte), h.handle, command()), 'invalid_proof');
+    reject(h.foundation.verifyRecovery(p.reviewProof, h.handle, command({ requestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })), 'intent_mismatch');
+    h.verifyData.browserReviewContext = context().browserReviewContext === 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+      ? 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' : 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    reject(h.foundation.verifyRecovery(p.reviewProof, h.handle, command()), 'context_mismatch');
+    h.verifyData.browserReviewContext = context().browserReviewContext; h.setTime(1700000900);
+    reject(h.foundation.verifyRecovery(p.reviewProof, h.handle, command()), 'invalid_context');
+  });
+});
 
 describe('experimental isolated AEAD review proof (fictional material, no database)', () => {
   it('verifies a literal fixture independently generated with Python cryptography AESGCM', () => {

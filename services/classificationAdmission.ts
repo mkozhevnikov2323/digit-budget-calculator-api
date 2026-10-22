@@ -9,7 +9,7 @@ export const admitClassificationRead = (owner: string, now = Date.now()): (() =>
     entry = { until: now + 60000, used: 0, active: 0 }; windows.set(owner, entry);
   }
   if (entry.until <= now) { entry.until = now + 60000; entry.used = 0; }
-  if (entry.used >= 120 || entry.active >= 4 || activeTotal >= 16) return null;
+  if (entry.used >= 600 || entry.active >= 4 || activeTotal >= 16) return null;
   entry.used++; entry.active++; activeTotal++;
   let released = false;
   return () => { if (!released) { released = true; entry.active--; activeTotal--; } };
