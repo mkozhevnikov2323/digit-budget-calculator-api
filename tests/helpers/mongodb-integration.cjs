@@ -227,6 +227,8 @@ async function createHarness(env) {
     req.end(options.rawBody ?? (body === undefined ? undefined : JSON.stringify(body)));
   });
   return { databaseName: database.name, mongoose, models, request, close,
+    // Test-owned ephemeral listener only; no production bootstrap or fixed API port.
+    get baseUrl() { return `http://127.0.0.1:${server.address().port}`; },
     assertDatabase: () => assertOwnedDatabase(mongoose.connection, database.name) };
 }
 
