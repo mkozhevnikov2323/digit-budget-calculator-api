@@ -26,7 +26,7 @@ Unsupported source/oversized strings fail closed (503), missing/foreign/deleted
 sources uniformly fail the entire batch (404), outside-window edits return 409.
 Invalid stored decisions become blocked, never confirmed. No raw BSON/digest leaks.
 
-Per-instance admission is bounded to 16 active requests, 4 per owner, 120/minute per
+Per-instance admission is bounded to 16 active requests, 4 per owner, 600/minute per
 owner and 4096 tracked owners. This protects this process only, not a fleet limit.
 Deployment ingress must enforce approved shared resource limits and avoid body,
 credential and financial-payload capture. Enabling production is not part of this PR.

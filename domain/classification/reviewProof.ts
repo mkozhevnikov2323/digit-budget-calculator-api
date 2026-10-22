@@ -45,6 +45,8 @@ export interface ReviewProofFoundation {
   issue(context: unknown, command: unknown): ReviewProofResult<Readonly<{ reviewProof: string; expiresAt: number }>>;
   /** Internal projection only; never serialize the successful result into HTTP/logs. */
   verify(token: unknown, context: unknown, command: unknown): ReviewProofResult<VerifiedReview>;
+  /** Recovery envelope is deliberately not a write-service VerifiedReview. */
+  verifyRecovery(token: unknown, context: unknown, command: unknown): ReviewProofResult<Readonly<{ review: VerifiedReview }>>;
 }
 
 const commandFields = ['kind', 'dataset', 'operationId', 'state', 'assignment', 'expectedRevision', 'requestId'] as const;
@@ -205,6 +207,42 @@ export const createReviewProofFoundation = (
     try { const n: unknown = nowSeconds(); return seconds(n) && n <= Number.MAX_SAFE_INTEGER - 300 ? n : undefined; }
     catch { return undefined; }
   };
+  const verify = (token: unknown, contextInput: unknown, commandInput: unknown, recovery: boolean): ReviewProofResult<VerifiedReview> => {
+      if (typeof token !== 'string' || token.length > MAX_TOKEN) return fail('invalid_token');
+      const parts = token.split('.');
+      if (parts.length !== 5 || parts[0] !== 'crp1' || !keyId(parts[1])) return fail('invalid_token');
+      const nonce = base64url(parts[2], 12, 12), ciphertext = base64url(parts[3], 1, MAX_PLAINTEXT), tag = base64url(parts[4], 16, 16);
+      if (!nonce || !ciphertext || !tag) return fail('invalid_token');
+      const key = keys.get(parts[1]);
+      if (!key) return fail('invalid_proof');
+      let plaintext: Buffer;
+      try {
+        const decipher = createDecipheriv('aes-256-gcm', key, nonce, { authTagLength: 16 });
+        decipher.setAAD(aad(deploymentId, parts[1])); decipher.setAuthTag(tag);
+        // Do not parse/use any partial plaintext until final() authenticates the tag.
+        plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+      } catch { return fail('invalid_proof'); }
+      let claims: Claims | undefined;
+      try { claims = decodeClaims(plaintext); } catch { return fail('invalid_claims'); }
+      if (!claims) return fail('invalid_claims');
+      let context: TrustedProofContext | undefined;
+      try { context = checkedContext(data(resolveVerification(contextInput), contextFields)); }
+      catch { return fail('invalid_context'); }
+      if (!context) return fail('invalid_context');
+      const time = now();
+      if (time === undefined) return fail('invalid_time');
+      if (context.credentialExpiresAt <= time) return fail('invalid_context');
+      if (claims.deploymentId !== deploymentId || claims.context.actor !== context.actor
+        || claims.context.credentialBinding !== context.credentialBinding
+        || claims.context.browserReviewContext !== context.browserReviewContext) return fail('context_mismatch');
+      if (claims.expiresAt > context.credentialExpiresAt || claims.issuedAt > time + REVIEW_PROOF_MAX_FUTURE_SKEW_SECONDS)
+        return fail('invalid_time');
+      if (recovery ? time >= claims.issuedAt + 86400 : time >= claims.expiresAt) return fail('proof_expired');
+      const command = checkedCommand(commandInput);
+      if (!command) return fail('invalid_command');
+      if (!sameIntent(claims.command, command)) return fail('intent_mismatch');
+      return pass(claims.review);
+  };
   return pass(Object.freeze({
     issue(contextInput: unknown, commandInput: unknown) {
       if (activeKid === null || !encryptionKey) return fail('issuance_unavailable');
@@ -235,41 +273,10 @@ export const createReviewProofFoundation = (
         return pass(Object.freeze({ reviewProof: token, expiresAt }));
       } catch { return fail('crypto_failure'); }
     },
-    verify(token: unknown, contextInput: unknown, commandInput: unknown) {
-      if (typeof token !== 'string' || token.length > MAX_TOKEN) return fail('invalid_token');
-      const parts = token.split('.');
-      if (parts.length !== 5 || parts[0] !== 'crp1' || !keyId(parts[1])) return fail('invalid_token');
-      const nonce = base64url(parts[2], 12, 12), ciphertext = base64url(parts[3], 1, MAX_PLAINTEXT), tag = base64url(parts[4], 16, 16);
-      if (!nonce || !ciphertext || !tag) return fail('invalid_token');
-      const key = keys.get(parts[1]);
-      if (!key) return fail('invalid_proof');
-      let plaintext: Buffer;
-      try {
-        const decipher = createDecipheriv('aes-256-gcm', key, nonce, { authTagLength: 16 });
-        decipher.setAAD(aad(deploymentId, parts[1])); decipher.setAuthTag(tag);
-        // Do not parse/use any partial plaintext until final() authenticates the tag.
-        plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-      } catch { return fail('invalid_proof'); }
-      let claims: Claims | undefined;
-      try { claims = decodeClaims(plaintext); } catch { return fail('invalid_claims'); }
-      if (!claims) return fail('invalid_claims');
-      let context: TrustedProofContext | undefined;
-      try { context = checkedContext(data(resolveVerification(contextInput), contextFields)); }
-      catch { return fail('invalid_context'); }
-      if (!context) return fail('invalid_context');
-      const time = now();
-      if (time === undefined) return fail('invalid_time');
-      if (context.credentialExpiresAt <= time) return fail('invalid_context');
-      if (claims.deploymentId !== deploymentId || claims.context.actor !== context.actor
-        || claims.context.credentialBinding !== context.credentialBinding
-        || claims.context.browserReviewContext !== context.browserReviewContext) return fail('context_mismatch');
-      if (claims.expiresAt > context.credentialExpiresAt || claims.issuedAt > time + REVIEW_PROOF_MAX_FUTURE_SKEW_SECONDS)
-        return fail('invalid_time');
-      if (time >= claims.expiresAt) return fail('proof_expired');
-      const command = checkedCommand(commandInput);
-      if (!command) return fail('invalid_command');
-      if (!sameIntent(claims.command, command)) return fail('intent_mismatch');
-      return pass(claims.review);
+    verify: (token: unknown, context: unknown, command: unknown) => verify(token, context, command, false),
+    verifyRecovery(token: unknown, context: unknown, command: unknown) {
+      const checked = verify(token, context, command, true);
+      return checked.ok ? pass(Object.freeze({ review: checked.value })) : checked;
     },
   }));
 };

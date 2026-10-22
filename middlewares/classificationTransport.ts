@@ -1,6 +1,7 @@
 /** Narrow transport policy for the approved new POST protocol only. */
 import type { RequestHandler } from 'express';
 import bodyParser = require('body-parser');
+import { sendClassificationHttpError } from '../services/classificationHttpError';
 
 export const isClassificationPost = (method: string, path: string): boolean => method === 'POST'
   && (/^\/classifications\/history\/read\/?$/.test(path)
@@ -47,11 +48,15 @@ export const classificationTransport: RequestHandler = (req, res, next) => {
     return Reflect.apply(end, this, args);
   } as typeof res.end;
   // Express send checks freshness for GET/HEAD only; never emit an ETag here.
-  const send = (status: number, code: string) => { res.status(status).json({ code }); };
+  const send = (status: number, code: string) => {
+    if (/^\/classifications\/history\/read\/?$/.test(req.path)) res.status(status).json({ code });
+    else sendClassificationHttpError(res, status, status === 403 ? 'forbidden_origin' : status === 413 ? 'request_too_large'
+      : status === 415 ? 'unsupported_media_type' : 'invalid_request');
+  };
   if (req.headers.origin !== undefined && !origins.includes(req.headers.origin)) { send(403, 'origin_rejected'); return; }
   if (!req.is('application/json')) { send(415, 'json_required'); return; }
   parser(req, res, error => {
-    if (error) { send(error.status === 413 ? 413 : 400, 'invalid_request'); return; }
+    if (error) { send(error.status === 413 ? 413 : error.status === 415 ? 415 : 400, 'invalid_request'); return; }
     try {
       if (typeof req.body !== 'string') throw new Error('Invalid JSON');
       req.body = parseClassificationJson(req.body);

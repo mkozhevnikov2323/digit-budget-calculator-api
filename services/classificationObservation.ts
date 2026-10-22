@@ -12,7 +12,7 @@ export type SourceFacts = Readonly<{ amount: { format: 'binary64-roundtrip-decim
 export const sourceProjection = (dataset: Dataset) => ({ _id: 1, owner: 1, amount: 1, date: 1, comment: 1,
   ...(dataset === 'expenses' ? { category: 1, title: 1, recipient: 1 } : { source: 1 }) });
 
-export const presentSource = (raw: unknown, identity: { owner: string; dataset: Dataset; operationId: string }) => {
+const projectSource = (raw: unknown, identity: { owner: string; dataset: Dataset; operationId: string }) => {
   const checked = sourceFingerprintFromBson(raw, identity);
   if (!checked.ok) return null;
   // The mapper established own data fields, exact native date and primitive amount.
@@ -21,7 +21,7 @@ export const presentSource = (raw: unknown, identity: { owner: string; dataset: 
   if (dateEpochMs < -62135596800000 || dateEpochMs >= 253402300800000) return null;
   const names = identity.dataset === 'expenses' ? ['category', 'title', 'recipient'] : ['source'];
   for (const key of [...names, 'comment']) {
-    if (typeof r[key] === 'string' && Buffer.byteLength(r[key], 'utf8') > 8192) return null;
+    if (typeof r[key] === 'string' && Buffer.byteLength(r[key], 'utf8') > 8192) return 'too_large' as const;
     // Reject lone surrogates: UTF-8 cannot preserve them exactly.
     if (typeof r[key] === 'string' && Buffer.from(r[key], 'utf8').toString('utf8') !== r[key]) return null;
   }
@@ -30,16 +30,21 @@ export const presentSource = (raw: unknown, identity: { owner: string; dataset: 
   const facts: SourceFacts = { amount: { format: 'binary64-roundtrip-decimal', value: Object.is(amount, -0) ? '-0' : String(amount) },
     dateEpochMs, date: new Date(dateEpochMs).toISOString(), comment,
     ...Object.fromEntries(names.map(key => [key, r[key]])) };
-  if (Buffer.byteLength(JSON.stringify(facts), 'utf8') > 32768) return null;
+  if (Buffer.byteLength(JSON.stringify(facts), 'utf8') > 32768) return 'too_large' as const;
   return { facts, fingerprint: checked.value };
+};
+export const presentSource = (raw: unknown, identity: { owner: string; dataset: Dataset; operationId: string }) => {
+  const projected = projectSource(raw, identity);
+  return projected === 'too_large' ? null : projected;
 };
 
 export const readSourceObservation = async (db: mongo.Db, owner: string, dataset: Dataset, operationId: string) => {
   const raw: unknown = await db.collection(dataset).findOne({ owner: new Types.ObjectId(owner), _id: new Types.ObjectId(operationId) },
     { projection: sourceProjection(dataset), maxTimeMS: 3000, promoteLongs: false });
   if (raw === null) return { status: 'missing' as const };
-  const value = presentSource(raw, { owner, dataset, operationId });
-  return value ? { status: 'ok' as const, value } : { status: 'invalid' as const };
+  const value = projectSource(raw, { owner, dataset, operationId });
+  return value === 'too_large' ? { status: 'too_large' as const }
+    : value ? { status: 'ok' as const, value } : { status: 'invalid' as const };
 };
 
 export const readStoredDecision = async (db: mongo.Db, owner: string, dataset: Dataset, operationId: string) =>

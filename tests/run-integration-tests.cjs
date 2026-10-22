@@ -5,7 +5,7 @@ const { pipeline } = require('node:stream/promises');
 
 const defaults = ['mongodb-integration-safety.test.cjs', 'financial-ownership.integration.test.cjs',
   'recurrence-read.integration.test.cjs', 'classification-persistence.integration.test.cjs',
-  'classification-read.integration.test.cjs', 'classification-history.integration.test.cjs', 'classification-write.integration.test.cjs']
+  'classification-read.integration.test.cjs', 'classification-history.integration.test.cjs', 'classification-protocol.integration.test.cjs', 'classification-write.integration.test.cjs']
   .map(filename => path.join(__dirname, filename));
 
 async function main() {
