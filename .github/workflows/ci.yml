@@ -2,7 +2,7 @@ name: Backend foundation CI
 
 on:
   pull_request:
-    branches: [main, 'feat/coherent-classification-history-read']
+    branches: [main, 'feat/coherent-classification-history-read', 'feat/classification-runtime-config']
 
 permissions:
   contents: read

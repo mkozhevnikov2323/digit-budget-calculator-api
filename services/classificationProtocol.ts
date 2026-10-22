@@ -14,6 +14,7 @@ import { authenticatedClassificationOwner } from './classificationPrincipal';
 import { readSourceObservation, readStoredDecision } from './classificationObservation';
 import { admitClassificationRead } from './classificationAdmission';
 import { sendClassificationHttpError, type ClassificationHttpErrorCode } from './classificationHttpError';
+import type { OperationalEventType } from './classificationRuntime/contracts';
 
 type Mode = 'prepare' | 'apply' | 'reconcile';
 export type ProtocolOperations = Readonly<{
@@ -24,6 +25,10 @@ export type ProtocolOperations = Readonly<{
    * A consumed reservation is never refunded on issuance failure. */
   reserveIssuance(): boolean | Promise<boolean>;
   nowSeconds(): number;
+  /** P11 optional request-lifetime fleet admission; never expires/cancels a commit. */
+  acquireAdmission?(mode: Mode): Promise<(() => Promise<void>) | null>;
+  keyAllowed?(kid: string, mode: Mode, issuedAt: number, now: number): boolean;
+  observe?(event: OperationalEventType): void;
 }>;
 export type ProtocolConfiguration = Readonly<{ keyring: unknown; deploymentId: string; operations: ProtocolOperations }>;
 const installed = new WeakMap<Application, RequestHandler>();
@@ -38,15 +43,19 @@ const versions = { prepare: 'classification-review-request-v1', apply: 'classifi
 export const installClassificationProtocol = (app: Application, connection: Connection, config: ProtocolConfiguration): (() => void) => {
   if (!config || !config.operations || ['ready', 'reserveIssuance', 'nowSeconds'].some(k => typeof config.operations[k as keyof ProtocolOperations] !== 'function'))
     throw new Error('Classification operational safeguards required');
+  if (['acquireAdmission', 'keyAllowed', 'observe'].some(k => config.operations[k as keyof ProtocolOperations] !== undefined
+    && typeof config.operations[k as keyof ProtocolOperations] !== 'function')) throw new Error('Classification operational safeguards required');
   const checkReady = config.operations.ready.bind(config.operations), reserveSlot = config.operations.reserveIssuance.bind(config.operations),
     now = config.operations.nowSeconds.bind(config.operations);
   const ready = async (mode: Mode): Promise<boolean> => (await checkReady(mode)) === true;
   const reserve = async (): Promise<boolean> => (await reserveSlot()) === true;
+  const notify = (event: OperationalEventType) => { try { config.operations.observe?.(event); } catch { /* No external exception data. */ } };
   const contexts = new WeakMap<object, TrustedProofContext>(), issuance = new WeakMap<object, TrustedIssuance>();
   const context = (handle: unknown) => handle && typeof handle === 'object' ? contexts.get(handle) : undefined;
   const proof = createReviewProofFoundation(config.keyring, config.deploymentId, {
     resolveIssuance: handle => handle && typeof handle === 'object' ? issuance.get(handle) : undefined,
     resolveVerification: context, nowSeconds: now,
+    ...(config.operations.keyAllowed ? { keyAllowed: config.operations.keyAllowed.bind(config.operations) } : {}),
   });
   if (!proof.ok) throw new Error('Classification proof configuration unavailable');
   const crypto = proof.value;
@@ -66,12 +75,17 @@ export const installClassificationProtocol = (app: Application, connection: Conn
   });
   const handler: RequestHandler = async (req, res) => {
     let release: (() => void) | null = null;
+    let releaseOperational: (() => Promise<void>) | null = null;
     let writeMayHaveStarted = false;
     const send = (status: number, code: ClassificationHttpErrorCode, persistence: 'not_applied' | 'unknown' = 'not_applied') =>
       sendClassificationHttpError(res, status, code, persistence);
     try {
       const mode = modes[req.params.action as keyof typeof modes];
       if (!mode || !await ready(mode)) { send(503, 'unavailable'); return; }
+      if (config.operations.acquireAdmission) {
+        releaseOperational = await config.operations.acquireAdmission(mode);
+        if (!releaseOperational || !await ready(mode)) { send(503, 'unavailable'); return; }
+      }
       const db = connection.readyState === 1 ? connection.db : undefined;
       if (!db) { send(503, 'unavailable'); return; }
       const owner = await authenticatedClassificationOwner(req, db);
@@ -108,9 +122,9 @@ export const installClassificationProtocol = (app: Application, connection: Conn
         const result = await service.execute(handle, command, body.reviewProof);
         if (!result.ok) {
           const code = result.error.code;
-          if (result.persistence === 'unknown') send(503, 'persistence_unknown', 'unknown');
+          if (result.persistence === 'unknown') { notify('write_unknown'); send(503, 'persistence_unknown', 'unknown'); }
           else if (code === 'source_not_found') send(404, 'operation_not_found');
-          else if (code === 'revision_conflict' || code === 'request_id_conflict' || code === 'stale_review' || code === 'revision_overflow') send(409, code);
+          else if (code === 'revision_conflict' || code === 'request_id_conflict' || code === 'stale_review' || code === 'revision_overflow') { notify('write_conflict'); send(409, code); }
           else if (code === 'blocked_decision' || code === 'unsupported_taxonomy' || code === 'unsupported_fingerprint_version') send(409, 'blocked_decision');
           else if (code === 'invalid_review' || code === 'review_mismatch') send(403, 'invalid_review');
           else if (code === 'invalid_command') send(400, 'invalid_request');
@@ -118,6 +132,7 @@ export const installClassificationProtocol = (app: Application, connection: Conn
           return;
         }
         const r = result.value;
+        notify('write_applied');
         res.status(r.outcome === 'created' ? 201 : 200).json({ ...r, version: 'classification-write-ack-v1',
           dataset: command.dataset, operationId: command.operationId, requestId: command.requestId }); return;
       }
@@ -151,6 +166,7 @@ export const installClassificationProtocol = (app: Application, connection: Conn
           receipt = { storedState: stored.state, decisionRevision: stored.decisionRevision,
             sourceStatus: stored.sourceFingerprint === observation.value.fingerprint.sourceFingerprint ? 'matching_observed' : 'stale' };
         }
+        notify(receipt ? 'reconcile_completed' : 'reconcile_indeterminate');
         res.json({ version: 'classification-reconcile-v1', dataset: command.dataset, operationId: command.operationId, requestId: command.requestId,
           result: receipt ? 'latest_applied' : 'indeterminate', receipt, confirmed: null, consistency: 'observed_only_non_atomic' }); return;
       }
@@ -169,7 +185,13 @@ export const installClassificationProtocol = (app: Application, connection: Conn
           decisionRevision: stored?.decisionRevision ?? null }, intent, facts, ...issued.value, consistency: 'observed_only_non_atomic' };
       if (Buffer.byteLength(JSON.stringify(response), 'utf8') > 65536) { send(413, 'review_too_large'); return; }
       res.json(response);
-    } catch { send(503, 'internal_failure', writeMayHaveStarted ? 'unknown' : 'not_applied'); } finally { release?.(); }
+    } catch { if (writeMayHaveStarted) notify('write_unknown'); send(503, 'internal_failure', writeMayHaveStarted ? 'unknown' : 'not_applied'); }
+    finally {
+      release?.();
+      // Managed releases latch health/drain failure internally. Never transform
+      // an already applied acknowledgement into a fictitious rollback.
+      if (releaseOperational) try { await releaseOperational(); } catch { /* Trusted provider owns unresolved admission. */ }
+    }
   };
   installed.set(app, handler);
   return () => { if (installed.get(app) === handler) installed.delete(app); };

@@ -24,6 +24,8 @@ The remaining fixed commands prepare bounded fixtures or test faults; they are
 not available over HTTP. `changeSource`/`unsupportedPrecision` deliberately reset
 the expected BSON baseline after the authorized fixture mutation.
 
+P11 routes protocol installation through the same explicit secure runtime adapter
+used by operational integration tests, with synthetic providers only.
 Protocol installation is test-only, with a fresh 32-byte AES key, distinct test
 era, bounded shared single-process issuance quota, current real manifest
 readiness and a documented +301s clock adjustment for expiry tests. Ordinary
@@ -36,7 +38,8 @@ it does not mock the writer or bypass proof verification. This yields the real
 unknown-outcome HTTP contract and allows real read-only reconciliation. Existing
 Express/MongoDB suites remain authoritative for the full race/recovery matrix.
 
-The parent must always send `close` and require `cleanupVerified: true` plus a
+Managed runtime shutdown must drain and release admissions before fixture disposal;
+failure is fatal. The parent must always send `close` and require `cleanupVerified: true` plus a
 zero child exit. Disconnect/SIGTERM/SIGINT also initiate teardown. Cleanup uses
 the existing helper: close listener/connections, guard exact generated DB, drop,
 verify no collections, disconnect, close real silent Winston transports, remove

@@ -1,8 +1,9 @@
 // IPC-only disposable browser fixture. Never imported by app.ts/server.ts.
 const assert = require('node:assert/strict');
-const { randomBytes, randomUUID } = require('node:crypto');
+const { randomUUID } = require('node:crypto');
 const { mock } = require('node:test');
 const { createHarness, testConfiguration } = require('../helpers/mongodb-integration.cjs');
+const { fixtureConfiguration, createSyntheticAuthority } = require('../helpers/operational-runtime.cjs');
 
 const flags = ['CLASSIFICATION_READ_ENABLED', 'CLASSIFICATION_HISTORY_READ_ENABLED',
   'CLASSIFICATION_REVIEW_ENABLED', 'CLASSIFICATION_WRITE_ENABLED', 'CLASSIFICATION_RECONCILE_ENABLED'];
@@ -10,7 +11,7 @@ const owners = { a: 'a'.repeat(24), b: 'b'.repeat(24) };
 const primary = '1'.repeat(24), foreign = 'b1'.padStart(24, '0'), misc = '2'.repeat(24);
 const password = 'Fictional-browser-account-42!';
 let stage = 'guard';
-let h, uninstall, clockOffset = 0, closed, baseline, manifest, lost, available = true;
+let h, runtime, authority, closed, baseline, manifest, lost;
 const send = message => { if (process.connected) process.send(message); };
 const safeError = () => new Error('Disposable browser fixture failed; private details suppressed');
 const snapshot = async () => {
@@ -22,12 +23,16 @@ const snapshot = async () => {
 async function dispose() {
   if (closed) return closed;
   closed = (async () => {
-    lost?.mock.restore(); uninstall?.();
-    if (h) {
-      const result = await h.close();
-      assert.deepEqual(result, { dropped: true, disconnected: true, listenerClosed: true,
-        logsClosed: true, directoryRemoved: true, environmentRestored: true });
+    lost?.mock.restore();
+    let runtimeClosed = true;
+    try { if (runtime) runtimeClosed = await runtime.shutdown(); } finally {
+      if (h) {
+        const result = await h.close();
+        assert.deepEqual(result, { dropped: true, disconnected: true, listenerClosed: true,
+          logsClosed: true, directoryRemoved: true, environmentRestored: true });
+      }
     }
+    assert.equal(runtimeClosed, true, 'Operational admissions must drain before database disposal');
     return { cleanupVerified: true };
   })();
   return closed;
@@ -83,18 +88,12 @@ async function start() {
   stage = 'runtime'; baseline = await snapshot();
   for (const flag of flags) process.env[flag] = '1';
   if (process.env.BUDGET_BROWSER_DEFAULT_OFF !== '1') {
-    let reservations = 0;
-    uninstall = require('../../dist/services/classificationProtocol').installClassificationProtocol(
-      require('../../dist/app'), h.mongoose.connection, {
-        deploymentId: 'disposable-browser-test-era',
-        keyring: { activeKid: 'browser-synthetic', keys: [{ kid: 'browser-synthetic', state: 'active', key: randomBytes(32) }] },
-        operations: {
-          ready: async () => available && (await require('../../dist/persistence/classificationReadiness')
-            .classificationReadiness(h.mongoose.connection.db)),
-          reserveIssuance: () => ++reservations <= 500,
-          nowSeconds: () => Math.floor(Date.now() / 1000) + clockOffset,
-        },
-      });
+    const fixture = fixtureConfiguration(h.databaseName);
+    authority = createSyntheticAuthority(fixture.config, fixture.materials);
+    const installed = await require('../../dist/services/classificationRuntime/install').installSecureClassificationRuntime(
+      require('../../dist/app'), h.mongoose.connection, fixture.config, authority.providers(), 'isolated-test');
+    assert.equal(installed.ok, true, 'Explicit synthetic operational dependencies must pass real preflight');
+    runtime = installed.value;
   }
   // Fault injection into real native persistence, after a real commit, ONLY in this process.
   // No test HTTP endpoints, no bypass of authentication/proofs/writer/CAS.
@@ -135,9 +134,9 @@ async function command(message) {
     case 'unsupportedPrecision':
       await db.collection('expenses').updateOne({ _id: oid(primary), owner: oid(owners.a) }, { $set: { amount: 1.001 } });
       baseline = await snapshot(); return { changed: true };
-    case 'expireProof': clockOffset += 301; return { advanced: true };
+    case 'expireProof': authority.advance(301); return { advanced: true };
     case 'loseAcknowledgement': lost.armed = true; return { armed: true };
-    case 'unavailable': available = false; return { unavailable: true };
+    case 'unavailable': authority.state.available = false; return { unavailable: true };
     default: throw safeError();
   }
 }

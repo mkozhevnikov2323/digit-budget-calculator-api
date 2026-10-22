@@ -67,7 +67,7 @@ export const runtimePolicyDigest = (c: RuntimeConfiguration): string => createHa
 ])).digest('hex');
 
 /** Only a durable authority may supply `previous`; process memory is not rollback protection. */
-export const validateRuntimeTransition = (previous: unknown, next: unknown, incompatibleRestore = false): boolean => {
+export const validateRuntimeTransition = (previous: unknown, next: unknown, incompatibleRestore = false, trustedNow?: number): boolean => {
   if (typeof incompatibleRestore !== 'boolean') return false;
   const p = validateRuntimeConfiguration(previous), n = validateRuntimeConfiguration(next);
   if (!p.ok || !n.ok || n.value.revision <= p.value.revision || n.value.databaseName !== p.value.databaseName
@@ -78,6 +78,7 @@ export const validateRuntimeTransition = (previous: unknown, next: unknown, inco
     const k = n.value.keys.find(k => k.kid === old.kid);
     return !!k && k.materialId === old.materialId && k.issueFrom === old.issueFrom && k.issueUntil <= old.issueUntil
       && k.verifyUntil <= old.verifyUntil && (old.state !== 'revoked' || k.state === 'revoked')
-      && (old.state !== 'verify_only' || k.state !== 'active');
+      && (old.state !== 'verify_only' || k.state !== 'active')
+      && (old.state !== 'active' || k.state !== 'verify_only' || uint(trustedNow) && k.issueUntil <= trustedNow + 1);
   }) && n.value.keys.every(k => !p.value.keys.some(old => old.materialId === k.materialId && old.kid !== k.kid));
 };

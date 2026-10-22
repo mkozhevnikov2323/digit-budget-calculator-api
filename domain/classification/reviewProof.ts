@@ -36,6 +36,9 @@ export interface ReviewProofTrust {
   resolveIssuance(context: unknown): unknown; // closed TrustedIssuance
   resolveVerification(context: unknown): unknown; // closed TrustedProofContext
   nowSeconds(): unknown; // trusted, healthy UTC clock; nonnegative safe integer
+  /** Optional trusted lifecycle policy; existing disconnected callers retain
+   * codec semantics. Authenticated timestamps only, never a request-body hook. */
+  keyAllowed?(kid: string, use: 'prepare' | 'apply' | 'reconcile', issuedAt: number, now: number): boolean;
 }
 export type ReviewProofKey = Readonly<{
   kid: string; state: 'active' | 'verify_only'; key: Buffer;
@@ -196,11 +199,16 @@ export const createReviewProofFoundation = (
   let ring: Ring | undefined;
   try { ring = checkedRing(keyringInput); } catch { return fail('invalid_keyring'); }
   if (!ring) return fail('invalid_keyring');
-  const trust = data(trustInput, ['resolveIssuance', 'resolveVerification', 'nowSeconds']);
+  const trust = data(trustInput, ['resolveIssuance', 'resolveVerification', 'nowSeconds', 'keyAllowed']);
   if (!deployment(deploymentId) || !trust || typeof trust.resolveIssuance !== 'function'
-    || typeof trust.resolveVerification !== 'function' || typeof trust.nowSeconds !== 'function')
+    || typeof trust.resolveVerification !== 'function' || typeof trust.nowSeconds !== 'function'
+    || (Object.hasOwn(trust, 'keyAllowed') && typeof trust.keyAllowed !== 'function'))
     return fail('invalid_configuration');
   const { resolveIssuance, resolveVerification, nowSeconds } = trust;
+  const keyAllowed = (kid: string, use: 'prepare' | 'apply' | 'reconcile', issuedAt: number, time: number) => {
+    try { return trust.keyAllowed === undefined || (trust.keyAllowed as NonNullable<ReviewProofTrust['keyAllowed']>)(kid, use, issuedAt, time) === true; }
+    catch { return false; }
+  };
   const { activeKid, keys } = ring;
   const encryptionKey = activeKid === null ? undefined : keys.get(activeKid);
   const now = (): number | undefined => {
@@ -238,6 +246,7 @@ export const createReviewProofFoundation = (
       if (claims.expiresAt > context.credentialExpiresAt || claims.issuedAt > time + REVIEW_PROOF_MAX_FUTURE_SKEW_SECONDS)
         return fail('invalid_time');
       if (recovery ? time >= claims.issuedAt + 86400 : time >= claims.expiresAt) return fail('proof_expired');
+      if (!keyAllowed(parts[1], recovery ? 'reconcile' : 'apply', claims.issuedAt, time)) return fail('invalid_proof');
       const command = checkedCommand(commandInput);
       if (!command) return fail('invalid_command');
       if (!sameIntent(claims.command, command)) return fail('intent_mismatch');
@@ -254,6 +263,7 @@ export const createReviewProofFoundation = (
       const context = checkedContext(r), time = now();
       if (!context) return fail('invalid_context');
       if (time === undefined) return fail('invalid_time');
+      if (!keyAllowed(activeKid, 'prepare', time, time)) return fail('issuance_unavailable');
       if (context.credentialExpiresAt <= time) return fail('invalid_context');
       const observation = data(r?.review, ['kind', 'owner', 'dataset', 'operationId', 'sourceFingerprint', 'sourceFingerprintVersion']);
       const review = validateVerifiedReview(observation);
