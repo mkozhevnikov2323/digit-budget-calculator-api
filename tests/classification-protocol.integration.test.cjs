@@ -11,7 +11,19 @@ describe('P6 approved HTTP protocol with real disposable MongoDB',{concurrency:f
   const token=(owner=a,extra={})=>jwt.sign({_id:owner,iat:issuedAt,exp:4102444800,...extra},'super-secret-key');
   const body=(extra={})=>({version:'classification-review-request-v1',browserReviewContext:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     requestId:randomUUID(),expectedRevision:null,state:'approved',assignment:{economicRole:'ordinary_expense',layer:'everyday'},...extra});
-  const call=(action,payload,credential=token(),operationId=id,options)=>h.request('POST','/classifications/expenses/'+operationId+'/'+action,payload,credential,options);
+  const call=async(action,payload,credential=token(),operationId=id,options)=>{
+    const r=await h.request('POST','/classifications/expenses/'+operationId+'/'+action,payload,credential,options);
+    if(r.status>=400 && !(r.status===401 && typeof r.body.message==='string')){
+      assert.equal(r.body.version,'classification-http-error-v1');
+      assert.equal(['not_applied','unknown'].includes(r.body.persistence),true);
+      assert.deepEqual(Object.keys(r.body).sort(),['error','persistence','version']);
+      assert.deepEqual(Object.keys(r.body.error),['code']);
+      assert.equal(['invalid_request','reauth_required','invalid_review','forbidden_origin','operation_not_found','stale_review',
+        'revision_conflict','request_id_conflict','revision_overflow','blocked_decision','review_expired','reconciliation_window_expired',
+        'review_too_large','request_too_large','unsupported_media_type','unavailable','internal_failure','persistence_unknown'].includes(r.body.error.code),true);
+    }
+    return r;
+  };
   const prepare=async(extra={},credential=token())=>{
     const command=body(extra),res=await call('reviews',command,credential);assert.equal(res.status,200,'Synthetic review preparation must succeed');
     return {command,proof:res.body.reviewProof,response:res.body};
@@ -52,7 +64,7 @@ describe('P6 approved HTTP protocol with real disposable MongoDB',{concurrency:f
   it('HTTP02 isolates foreign/missing/deleted operations uniformly',async()=>{
     const foreign=await call('reviews',body(),token(b)),missing=await call('reviews',body(),token(),'9'.repeat(24));
     await db.collection('expenses').deleteOne({_id:oid(id)});const deleted=await call('reviews',body());
-    for(const r of [foreign,missing,deleted]){assert.equal(r.status,404);assert.deepEqual(r.body,{code:'source_not_found'});}
+    for(const r of [foreign,missing,deleted]){assert.equal(r.status,404);assert.deepEqual(r.body,{version:'classification-http-error-v1',error:{code:'operation_not_found'},persistence:'not_applied'});}
   });
   it('HTTP03 rejects forged owner/digest/taxonomy/confirmation and unknown properties',async()=>{
     for(const extra of [{owner:b},{sourceFingerprint:'a'.repeat(64)},{taxonomyVersion:'financial-classification-v1'},{confirmed:true},{extra:1}])
@@ -80,18 +92,18 @@ describe('P6 approved HTTP protocol with real disposable MongoDB',{concurrency:f
   it('HTTP08 binds every mutable command field and browser context',async()=>{
     const p=await prepare();
     for(const edit of [{requestId:randomUUID()},{expectedRevision:1},{state:'explicit_unclassified',assignment:undefined},
-      {assignment:{economicRole:'ordinary_expense',layer:'irregular'}},{browserReviewContext:randomUUID()}])assert.equal((await apply(p,edit)).status,400);
+      {assignment:{economicRole:'ordinary_expense',layer:'irregular'}},{browserReviewContext:randomUUID()}])assert.equal((await apply(p,edit)).status,403);
     assert.equal(await count(),0);
   });
   it('HTTP09 binds exact verified bearer even for the same actor',async()=>{
-    const p=await prepare();assert.equal((await apply(p,{},token(a,{jti:'other-fictional-session'}))).status,400);assert.equal(await count(),0);
+    const p=await prepare();assert.equal((await apply(p,{},token(a,{jti:'other-fictional-session'}))).status,403);assert.equal(await count(),0);
   });
   it('HTTP10 cross-owner proof cannot authorize a write',async()=>{
-    const p=await prepare();assert.equal((await apply(p,{},token(b))).status,400);assert.equal(await count(),0);
+    const p=await prepare();assert.equal((await apply(p,{},token(b))).status,403);assert.equal(await count(),0);
   });
   it('HTTP11 tampered ciphertext/tag/nonce never reaches persistence',async()=>{
     const p=await prepare();for(const segment of [2,3,4]){const parts=p.proof.split('.');const bytes=Buffer.from(parts[segment],'base64url');bytes[0]^=1;
-      parts[segment]=bytes.toString('base64url');assert.equal((await apply({...p,proof:parts.join('.')})).status,400);}assert.equal(await count(),0);
+      parts[segment]=bytes.toString('base64url');assert.equal((await apply({...p,proof:parts.join('.')})).status,403);}assert.equal(await count(),0);
   });
   it('HTTP12 expired proof is refused for apply without grace',async()=>{
     const p=await prepare();clock+=300;const r=await apply(p);assert.equal(r.status,410);assert.equal(r.body.persistence,'not_applied');assert.equal(await count(),0);
@@ -102,7 +114,7 @@ describe('P6 approved HTTP protocol with real disposable MongoDB',{concurrency:f
     }
   });
   it('HTTP14 source edits after review reject without touching classifications',async()=>{
-    const p=await prepare();await change({amount:99});const r=await apply(p);assert.equal(r.status,409);assert.equal(r.body.code,'stale_review');assert.equal(await count(),0);
+    const p=await prepare();await change({amount:99});const r=await apply(p);assert.equal(r.status,409);assert.equal(r.body.error.code,'stale_review');assert.equal(await count(),0);
   });
   it('HTTP15 source deletion is a safe 404 and does not insert an orphan',async()=>{
     const p=await prepare();await db.collection('expenses').deleteOne({_id:oid(id)});assert.equal((await apply(p)).status,404);assert.equal(await count(),0);
@@ -155,8 +167,8 @@ describe('P6 approved HTTP protocol with real disposable MongoDB',{concurrency:f
   });
   it('HTTP27 readonly recovery enforces same bearer/account/context after expiry',async()=>{
     const p=await prepare();await apply(p);clock+=301;
-    assert.equal((await reconcile(p,{},token(a,{jti:'different'}))).status,400);
-    assert.equal((await reconcile(p,{browserReviewContext:randomUUID()})).status,400);
+    assert.equal((await reconcile(p,{},token(a,{jti:'different'}))).status,403);
+    assert.equal((await reconcile(p,{browserReviewContext:randomUUID()})).status,403);
     await db.collection('users').deleteOne({_id:oid(a)});assert.equal((await reconcile(p)).status,401);
   });
   it('HTTP28 recovery reports changed source and hides orphan receipts after deletion',async()=>{
@@ -187,18 +199,18 @@ describe('P6 approved HTTP protocol with real disposable MongoDB',{concurrency:f
     const p=await prepare();for(const key of ['sourceFingerprint','credentialBinding','lastMutation','_id','owner','stack'])
       assert.equal(JSON.stringify(p.response).includes('"'+key+'"'),false,'Private DTO metadata excluded');
     const spy=mock.method(h.mongoose.mongo.Collection.prototype,'findOne',()=>{throw Error('Fictional private failure');});
-    try{const r=await call('reviews',body());assert.equal(r.status,503);assert.deepEqual(r.body,{code:'protocol_unavailable'});}finally{spy.mock.restore();}
+    try{const r=await call('reviews',body());assert.equal(r.status,503);assert.deepEqual(r.body,{version:'classification-http-error-v1',error:{code:'internal_failure'},persistence:'not_applied'});}finally{spy.mock.restore();}
   });
   it('HTTP34 no-store, no ETag and Vary on success/auth/failure',async()=>{
     for(const t of [token(),'']){const r=await call('reviews',body(),t);assert.equal(r.headers['cache-control'],'no-store');assert.equal(r.headers.etag,undefined);
       assert.equal(r.headers.vary.includes('Authorization'),true);assert.equal(r.headers.vary.includes('Origin'),true);}
   });
   it('HTTP35 a lost client lifecycle is not a server rollback guarantee',async()=>{
-    const p=await prepare();await apply(p);const q=await reconcile(p,{browserReviewContext:randomUUID()});assert.equal(q.status,400);assert.equal(await count(),1);
+    const p=await prepare();await apply(p);const q=await reconcile(p,{browserReviewContext:randomUUID()});assert.equal(q.status,403);assert.equal(await count(),1);
   });
   it('HTTP36 apply cannot mint review evidence from current source',async()=>{
     const p=await prepare();await change({title:'Repair'});quota=0;assert.equal((await apply(p)).status,409);assert.equal(await count(),0);
-    assert.equal((await call('commands',{...body(),version:'classification-command-v1',reviewProof:'invalid'})).status,400);
+    assert.equal((await call('commands',{...body(),version:'classification-command-v1',reviewProof:'invalid'})).status,403);
   });
   it('HTTP37 suggestions/automatic origins cannot bypass strict manual DTOs',async()=>{
     for(const extra of [{decisionOrigin:'automatic'},{kind:'suggestion'},{taxonomyVersion:'financial-layers-v1-provisional'},{reviewed:true}])
@@ -222,7 +234,7 @@ describe('P6 approved HTTP protocol with real disposable MongoDB',{concurrency:f
   it('multi-instance shared key/era verification and revocation gates',async()=>{
     const p=await prepare();configure();assert.equal((await apply(p)).status,201);
     operational=false;assert.equal((await reconcile(p)).status,503);assert.equal((await call('reviews',body())).status,503);
-    operational=true;config={...config,deploymentId:'different-era'};configure();assert.equal((await reconcile(p)).status,400);
+    operational=true;config={...config,deploymentId:'different-era'};configure();assert.equal((await reconcile(p)).status,403);
   });
   it('fleet issuance reservation exhaustion and invalid keyring fail closed',async()=>{
     quota=0;assert.equal((await call('reviews',body())).status,503);assert.equal(await count(),0);
@@ -238,7 +250,7 @@ describe('P6 approved HTTP protocol with real disposable MongoDB',{concurrency:f
   });
   it('rejects operation/dataset proof substitution and accepts canonical path aliases',async()=>{
     const p=await prepare();const payload={...p.command,version:'classification-command-v1',reviewProof:p.proof};
-    assert.equal((await call('commands',payload,token(),'2'.repeat(24))).status,400);
+    assert.equal((await call('commands',payload,token(),'2'.repeat(24))).status,403);
     assert.equal((await h.request('POST','/classifications/incomes/'+id+'/commands',payload,token())).status,400);
     assert.equal((await call('commands',payload,token(),id.toUpperCase())).status,201);
   });
@@ -250,7 +262,7 @@ describe('P6 approved HTTP protocol with real disposable MongoDB',{concurrency:f
     assert.equal((await apply(p)).status,409);assert.equal(await count(),0);
   });
   it('oversize/unsupported presentation never returns proof or truncates facts',async()=>{
-    await change({comment:'x'.repeat(8193)});const r=await call('reviews',body());assert.equal(r.status,503);assert.equal(Object.hasOwn(r.body,'reviewProof'),false);
+    await change({comment:'x'.repeat(8193)});const r=await call('reviews',body());assert.equal(r.status,413);assert.equal(Object.hasOwn(r.body,'reviewProof'),false);
   });
   it('proof expiration after resolver admission does not pretend to be a commit deadline',async()=>{
     const p=await prepare(),original=h.mongoose.mongo.Collection.prototype.insertOne;
@@ -262,10 +274,10 @@ describe('P6 approved HTTP protocol with real disposable MongoDB',{concurrency:f
   it('verify-only rotation preserves verification but cannot issue, disabled keys reject recovery',async()=>{
     const p=await prepare();config={...config,keyring:{activeKid:null,keys:[{kid:'synthetic',state:'verify_only',key:ring.keys[0].key}]}};configure();
     assert.equal((await call('reviews',body())).status,503);assert.equal((await apply(p)).status,201);
-    config={...config,keyring:{activeKid:null,keys:[{kid:'synthetic',state:'disabled'}]}};configure();assert.equal((await reconcile(p)).status,400);
+    config={...config,keyring:{activeKid:null,keys:[{kid:'synthetic',state:'disabled'}]}};configure();assert.equal((await reconcile(p)).status,403);
   });
   it('clock-health/readiness failure and quota do not authorize encryption or writes',async()=>{
     const p=await prepare();operational=false;assert.equal((await apply(p)).status,503);assert.equal(await count(),0);
-    operational=true;clock=NaN;assert.equal((await call('reviews',body())).status,503);assert.equal((await apply(p)).status,400);
+    operational=true;clock=NaN;assert.equal((await call('reviews',body())).status,503);assert.equal((await apply(p)).status,503);
   });
 });

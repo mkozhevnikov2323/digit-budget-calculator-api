@@ -13,6 +13,7 @@ import { classificationReadiness } from '../persistence/classificationReadiness'
 import { authenticatedClassificationOwner } from './classificationPrincipal';
 import { readSourceObservation, readStoredDecision } from './classificationObservation';
 import { admitClassificationRead } from './classificationAdmission';
+import { sendClassificationHttpError, type ClassificationHttpErrorCode } from './classificationHttpError';
 
 type Mode = 'prepare' | 'apply' | 'reconcile';
 export type ProtocolOperations = Readonly<{
@@ -65,32 +66,32 @@ export const installClassificationProtocol = (app: Application, connection: Conn
   });
   const handler: RequestHandler = async (req, res) => {
     let release: (() => void) | null = null;
-    const send = (status: number, code: string, persistence?: 'not_applied' | 'unknown') => {
-      res.status(status).json({ code, ...(persistence ? { persistence } : {}) });
-    };
+    let writeMayHaveStarted = false;
+    const send = (status: number, code: ClassificationHttpErrorCode, persistence: 'not_applied' | 'unknown' = 'not_applied') =>
+      sendClassificationHttpError(res, status, code, persistence);
     try {
       const mode = modes[req.params.action as keyof typeof modes];
-      if (!mode || !await ready(mode)) { send(503, 'protocol_unavailable'); return; }
+      if (!mode || !await ready(mode)) { send(503, 'unavailable'); return; }
       const db = connection.readyState === 1 ? connection.db : undefined;
-      if (!db) { send(503, 'protocol_unavailable'); return; }
+      if (!db) { send(503, 'unavailable'); return; }
       const owner = await authenticatedClassificationOwner(req, db);
-      if (!owner) { send(401, 'ineligible_account'); return; }
+      if (!owner) { send(401, 'reauth_required'); return; }
       const identity = validateOperationIdentity({ owner, dataset: req.params.dataset, operationId: req.params.operationId });
       const body = readWriteFields(req.body, ['version', 'browserReviewContext', 'requestId', 'expectedRevision', 'state', 'assignment',
         ...(mode === 'prepare' ? [] : ['reviewProof'])]);
       if (!identity.ok || !body || body.version !== versions[mode] || Object.keys(req.query).length || !uuid(body.browserReviewContext)
         || (mode !== 'prepare' && (typeof body.reviewProof !== 'string' || body.reviewProof.length > 4096))) {
-        send(400, 'invalid_command'); return;
+        send(400, 'invalid_request'); return;
       }
       const c = validateManualCommand({ kind: 'manual_classification', dataset: identity.value.dataset, operationId: identity.value.operationId,
         state: body.state, requestId: body.requestId, expectedRevision: body.expectedRevision,
         ...(Object.hasOwn(body, 'assignment') ? { assignment: body.assignment } : {}) });
-      if (!c.ok) { send(400, 'invalid_command'); return; }
+      if (!c.ok) { send(400, 'invalid_request'); return; }
       const command = c.value, browserReviewContext = body.browserReviewContext;
       release = admitClassificationRead(owner);
-      if (!release) { send(429, 'protocol_rate_limited'); return; }
+      if (!release) { send(503, 'unavailable'); return; }
       const bearer = exactBearer(req);
-      if (!bearer) { send(401, 'ineligible_account'); return; }
+      if (!bearer) { send(401, 'reauth_required'); return; }
       const handle = Object.freeze({});
       const principal = req.user as { exp: number };
       contexts.set(handle, Object.freeze({ actor: owner, browserReviewContext, credentialExpiresAt: principal.exp,
@@ -99,12 +100,22 @@ export const installClassificationProtocol = (app: Application, connection: Conn
         // Authenticate proof before entering the write service for useful safe expiry
         // errors. Service resolver re-verifies at admission, never mints evidence.
         const checked = crypto.verify(body.reviewProof, handle, command);
-        if (!checked.ok) { send(checked.error.code === 'proof_expired' ? 410 : 400, checked.error.code, 'not_applied'); return; }
+        if (!checked.ok) {
+          send(checked.error.code === 'proof_expired' ? 410 : checked.error.code === 'invalid_time' ? 503 : 403,
+            checked.error.code === 'proof_expired' ? 'review_expired' : checked.error.code === 'invalid_time' ? 'unavailable' : 'invalid_review'); return;
+        }
+        writeMayHaveStarted = true;
         const result = await service.execute(handle, command, body.reviewProof);
         if (!result.ok) {
           const code = result.error.code;
-          send(code === 'source_not_found' ? 404 : ['revision_conflict', 'request_id_conflict', 'stale_review'].includes(code) ? 409 : 503,
-            code, result.persistence); return;
+          if (result.persistence === 'unknown') send(503, 'persistence_unknown', 'unknown');
+          else if (code === 'source_not_found') send(404, 'operation_not_found');
+          else if (code === 'revision_conflict' || code === 'request_id_conflict' || code === 'stale_review' || code === 'revision_overflow') send(409, code);
+          else if (code === 'blocked_decision' || code === 'unsupported_taxonomy' || code === 'unsupported_fingerprint_version') send(409, 'blocked_decision');
+          else if (code === 'invalid_review' || code === 'review_mismatch') send(403, 'invalid_review');
+          else if (code === 'invalid_command') send(400, 'invalid_request');
+          else send(503, 'unavailable');
+          return;
         }
         const r = result.value;
         res.status(r.outcome === 'created' ? 201 : 200).json({ ...r, version: 'classification-write-ack-v1',
@@ -113,27 +124,30 @@ export const installClassificationProtocol = (app: Application, connection: Conn
       // Reconciliation authenticates all bindings first, allowing proof expiry only
       // within 24h. It never calls service.execute or any mutation method.
       const recovered = mode === 'reconcile' ? crypto.verifyRecovery(body.reviewProof, handle, command) : undefined;
-      if (recovered && !recovered.ok) { send(recovered.error.code === 'proof_expired' ? 410 : 400, recovered.error.code); return; }
+      if (recovered && !recovered.ok) {
+        send(recovered.error.code === 'proof_expired' ? 410 : recovered.error.code === 'invalid_time' ? 503 : 403,
+          recovered.error.code === 'proof_expired' ? 'reconciliation_window_expired' : recovered.error.code === 'invalid_time' ? 'unavailable' : 'invalid_review'); return;
+      }
       const observation = await readSourceObservation(db, owner, command.dataset, command.operationId);
-      if (observation.status !== 'ok') { send(observation.status === 'missing' ? 404 : 503,
-        observation.status === 'missing' ? 'source_not_found' : 'source_unavailable'); return; }
-      if (!await classificationReadiness(db)) { send(503, 'protocol_unavailable'); return; }
+      if (observation.status !== 'ok') { send(observation.status === 'missing' ? 404 : observation.status === 'too_large' ? 413 : 503,
+        observation.status === 'missing' ? 'operation_not_found' : observation.status === 'too_large' ? 'review_too_large' : 'unavailable'); return; }
+      if (!await classificationReadiness(db)) { send(503, 'unavailable'); return; }
       const raw: unknown = await readStoredDecision(db, owner, command.dataset, command.operationId);
       const parsed = raw === null ? null : classificationFromBson(raw);
       if (parsed && (!parsed.ok || parsed.value.owner !== owner || parsed.value.dataset !== command.dataset || parsed.value.operationId !== command.operationId)) {
-        send(503, 'blocked_decision'); return;
+        send(409, 'blocked_decision'); return;
       }
       const stored = parsed?.ok ? parsed.value : null;
-      if (!await classificationReadiness(db) || !await ready(mode)) { send(503, 'protocol_unavailable'); return; }
+      if (!await classificationReadiness(db) || !await ready(mode)) { send(503, 'unavailable'); return; }
       if (mode === 'reconcile' && recovered?.ok) {
         const review = recovered.value.review, hash = fingerprintClassificationCommand(owner, command, review, 1);
-        if (!hash.ok) { send(400, 'invalid_command'); return; }
+        if (!hash.ok) { send(400, 'invalid_request'); return; }
         let receipt = null;
         if (stored?.lastMutation.requestId === command.requestId) {
           if (stored.lastMutation.commandFingerprint !== hash.value.commandFingerprint) { send(409, 'request_id_conflict'); return; }
           if (stored.state !== command.state || !isDeepStrictEqual(stored.assignment, command.assignment)
             || stored.decisionRevision !== (command.expectedRevision === null ? 1 : command.expectedRevision + 1)
-            || stored.sourceFingerprint !== review.sourceFingerprint) { send(503, 'blocked_decision'); return; }
+            || stored.sourceFingerprint !== review.sourceFingerprint) { send(409, 'blocked_decision'); return; }
           receipt = { storedState: stored.state, decisionRevision: stored.decisionRevision,
             sourceStatus: stored.sourceFingerprint === observation.value.fingerprint.sourceFingerprint ? 'matching_observed' : 'stale' };
         }
@@ -145,9 +159,9 @@ export const installClassificationProtocol = (app: Application, connection: Conn
       const review: VerifiedReview = { kind: 'verified_manual_review', owner, dataset: command.dataset, operationId: command.operationId,
         ...observation.value.fingerprint };
       issuance.set(handle, Object.freeze({ ...contexts.get(handle)!, review }));
-      if (!await reserve() || !await ready('prepare')) { send(503, 'issuance_unavailable'); return; }
+      if (!await reserve() || !await ready('prepare')) { send(503, 'unavailable'); return; }
       const issued = crypto.issue(handle, command);
-      if (!issued.ok) { send(503, 'issuance_unavailable'); return; }
+      if (!issued.ok) { send(503, 'unavailable'); return; }
       const { date: _date, ...facts } = observation.value.facts;
       const intent = publicIntent(command);
       const response = { version: 'classification-review-v1', dataset: command.dataset, operationId: command.operationId,
@@ -155,7 +169,7 @@ export const installClassificationProtocol = (app: Application, connection: Conn
           decisionRevision: stored?.decisionRevision ?? null }, intent, facts, ...issued.value, consistency: 'observed_only_non_atomic' };
       if (Buffer.byteLength(JSON.stringify(response), 'utf8') > 65536) { send(413, 'review_too_large'); return; }
       res.json(response);
-    } catch { send(503, 'protocol_unavailable'); } finally { release?.(); }
+    } catch { send(503, 'internal_failure', writeMayHaveStarted ? 'unknown' : 'not_applied'); } finally { release?.(); }
   };
   installed.set(app, handler);
   return () => { if (installed.get(app) === handler) installed.delete(app); };
@@ -171,7 +185,7 @@ export const classificationProtocol: RequestHandler = (req, res, next) => {
   const action = req.path.endsWith('/commands/reconcile') ? 'reconcile' : req.path.endsWith('/reviews') ? 'reviews' : 'commands';
   const gate = action === 'reviews' ? 'CLASSIFICATION_REVIEW_ENABLED' : action === 'reconcile' ? 'CLASSIFICATION_RECONCILE_ENABLED' : 'CLASSIFICATION_WRITE_ENABLED';
   const handler = installed.get(req.app);
-  if (process.env[gate] !== '1' || !handler) { res.status(503).json({ code: 'protocol_unavailable' }); return; }
+  if (process.env[gate] !== '1' || !handler) { sendClassificationHttpError(res, 503, 'unavailable'); return; }
   req.params.action = action;
   return handler(req, res, next);
 };

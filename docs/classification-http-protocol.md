@@ -49,6 +49,14 @@ existence/unexpired finite JWT exp checks. Shared per-instance admission now per
 Private upstream proxy/APM capture, TLS, key custody and production account lifecycle
 are deployment checks, not properties proven by middleware tests.
 
+RFC §6.4 errors use the closed versioned `classification-http-error-v1` envelope,
+enum code and explicit persistence:not_applied|unknown. Invalid authenticated
+proof/key/actor/intent/context failures are generic403 invalid_review, not private
+crypto diagnostics. Expired admission/recovery uses410; source presentation size
+uses413; unsupported media uses415; blocked/revision failures409. Possible commit
+failure is503 persistence_unknown, never not_applied. Legacy global JWT401 message
+is intentionally retained under the RFC's exception. P5 read DTOs are unchanged.
+
 ## Apply and recovery
 
 Proofs retain AES-256-GCM, exact credential/browser/actor/intent binding,300s TTL,
