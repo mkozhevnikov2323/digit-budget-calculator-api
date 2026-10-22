@@ -208,23 +208,23 @@ async function createHarness(env) {
     throw new Error('MongoDB integration application setup failed; test resources released; details suppressed');
   }
 
-  const request = (method, endpoint, body, token) => new Promise((resolve, reject) => {
+  const request = (method, endpoint, body, token, options = {}) => new Promise((resolve, reject) => {
     assert.equal(server.listening, true, 'Owned HTTP listener is closed');
     const req = http.request({ hostname: '127.0.0.1', port: server.address().port,
       method, path: endpoint, headers: { Connection: 'close', 'Content-Type': 'application/json',
-        ...(token === undefined ? {} : { Authorization: `Bearer ${token}` }) } }, res => {
+        ...(token === undefined ? {} : { Authorization: `Bearer ${token}` }), ...options.headers } }, res => {
       let text = '';
       res.setEncoding('utf8');
       res.on('data', chunk => { text += chunk; });
       res.on('error', () => reject(new Error('Owned HTTP response failed')));
       res.on('end', () => {
-        try { resolve({ status: res.statusCode, text, body: text ? JSON.parse(text) : undefined, contentType: res.headers['content-type'] }); }
+        try { resolve({ status: res.statusCode, text, body: text ? JSON.parse(text) : undefined, contentType: res.headers['content-type'], headers: res.headers }); }
         catch { reject(new Error('Owned HTTP response was not valid JSON')); }
       });
     });
     req.setTimeout(5000, () => req.destroy(new Error('Owned HTTP request timed out')));
     req.on('error', () => reject(new Error('Owned loopback HTTP request failed')));
-    req.end(body === undefined ? undefined : JSON.stringify(body));
+    req.end(options.rawBody ?? (body === undefined ? undefined : JSON.stringify(body)));
   });
   return { databaseName: database.name, mongoose, models, request, close,
     assertDatabase: () => assertOwnedDatabase(mongoose.connection, database.name) };
