@@ -7,9 +7,11 @@ import cors = require('./middlewares/cors');
 import globalErrorHandler = require('./errors/globalErrorHandler');
 // Transitional boundary: legacy routes/controllers/models remain unchecked.
 import routes = require('./routes');
+import { classificationTransport } from './middlewares/classificationTransport';
 
 const app = express();
 
+app.use(classificationTransport);
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(logger.requestLogger);
