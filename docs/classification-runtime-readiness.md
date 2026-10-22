@@ -78,3 +78,19 @@ evidence; cross-process high-water protection is the durable authority's job.
 These conservative readiness thresholds do not extend the codec's accepted skew.
 
 No production activation is added by importing these pure foundations.
+
+## Operational implementation (dependent P11 PR)
+
+Explicit provider contracts, bounded calls, admission/drain controls, safe event
+serialization and non-mutating operational preflight are implemented in
+`services/classificationRuntime/`. The existing HTTP protocol uses optional trusted
+hooks; app/server remain unchanged and default-off. The P10 test-only bootstrap
+now exercises this managed installer with synthetic providers. See the
+[operator runbook](classification-operational-runbook.md) for exact controls,
+external choices, evidence limitations and separately approved execution order.
+
+Readiness is not a commit-time revocation/fencing guarantee. An already admitted
+write can still finish after disablement; local drain is not fleet drain. Real
+secret custody, durable fleet ledger/anti-rollback checkpoints, credible time,
+DDL/restore exclusion, privileges, lifecycle and backups remain OPERATIONALLY
+UNVERIFIED. Production activation is NOT APPROVED by code/tests/CI.
