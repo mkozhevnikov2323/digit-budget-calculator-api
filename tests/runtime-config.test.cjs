@@ -41,6 +41,9 @@ describe('P11 strict trusted runtime configuration and key lifecycle (synthetic)
     ['proxy', () => new Proxy(config(), { ownKeys() { throw Error('Must not execute'); } })],
     ['sparse keys', () => config({ keys: Array(1) })],
   ]) it('rejects unsafe input ' + name + ' without coercion or hooks', () => denied(make()));
+  for (const [name, change] of [['kid', { issuingKid: 'synthetic\n', keys: [key({ kid: 'synthetic\n' })] }],
+    ['era', { deploymentId: 'synthetic-era\n' }], ['namespace', { databaseName: 'synthetic_only\n' }]])
+    it('rejects a final newline in ' + name + ' despite JavaScript end-anchor behavior', () => denied(config(change)));
   it('permits verify-only recovery with no issuer and denies new issuance', () => {
     const c = valid(config({ issuingKid: null, keys: [key({ state: 'verify_only' })] }));
     assert.equal(allowed(c, 'synthetic', 'prepare', start + 10, start + 10), false);

@@ -18,8 +18,8 @@ export const plain = (x: unknown, fields: readonly string[]): Record<string, unk
 };
 export const uint = (x: unknown): x is number => typeof x === 'number' && Number.isSafeInteger(x) && x >= 0 && !Object.is(x, -0);
 export const digest = (x: unknown): x is string => typeof x === 'string' && x.length === 64 && /^[a-f0-9]{64}$/.test(x);
-export const kid = (x: unknown): x is string => typeof x === 'string' && x.length >= 1 && x.length <= 32 && /^[a-z0-9][a-z0-9_-]*$/.test(x);
-const deployment = (x: unknown): x is string => typeof x === 'string' && x.length >= 1 && x.length <= 128 && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(x);
+export const kid = (x: unknown): x is string => typeof x === 'string' && x.length >= 1 && x.length <= 32 && /^[a-z0-9]/.test(x) && !/[^a-z0-9_-]/.test(x);
+const deployment = (x: unknown): x is string => typeof x === 'string' && x.length >= 1 && x.length <= 128 && /^[A-Za-z0-9]/.test(x) && !/[^A-Za-z0-9._:-]/.test(x);
 export const ownedArray = (x: unknown, max: number): readonly unknown[] | undefined => {
   try {
     if (!x || typeof x !== 'object' || types.isProxy(x) || !Array.isArray(x) || Object.getPrototypeOf(x) !== Array.prototype) return;
@@ -38,7 +38,7 @@ export const validateRuntimeConfiguration = (input: unknown): SafeResult<Runtime
   const r = plain(input, ['version', 'deploymentId', 'revision', 'databaseName', 'issuingKid', 'keys']);
   if (!r || Object.keys(r).length !== 6 || r.version !== 'classification-runtime-v1' || !deployment(r.deploymentId)
     || !uint(r.revision) || r.revision === 0 || typeof r.databaseName !== 'string' || r.databaseName.length > 63
-    || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(r.databaseName) || ['admin', 'local', 'config'].includes(r.databaseName.toLowerCase())
+    || !/^[A-Za-z0-9]/.test(r.databaseName) || /[^A-Za-z0-9_-]/.test(r.databaseName) || ['admin', 'local', 'config'].includes(r.databaseName.toLowerCase())
     || !(r.issuingKid === null || kid(r.issuingKid))) return invalid();
   const inputKeys = ownedArray(r.keys, 32);
   if (!inputKeys?.length) return invalid();
