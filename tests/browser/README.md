@@ -45,3 +45,16 @@ the existing helper: close listener/connections, guard exact generated DB, drop,
 verify no collections, disconnect, close real silent Winston transports, remove
 temp logs, restore context. Failure is fatal. No raw subprocess diagnostics are
 forwarded to CI. The enclosing CI service/container must be disposable too.
+
+
+## P11.1 opt-in local provider verification
+
+`BUDGET_BROWSER_LOCAL_PROVIDER=1` additionally selects the real built-in SQLite
+ledger and protected disposable systemd-style credential directory plus the strict
+chrony parser/clock adapter. External ledger/time anchors and time infrastructure
+remain SYNTHETIC test fixtures, labelled `isolated-test`; no host service is used.
+All14P10 browser scenarios, manual checkbox, default-off case, guard/cleanup and
+privacy reporter remain unchanged. No moving backend branch: frontend pins an exact
+reviewed SHA. Teardown closes SQLite and deletes generated credential files; failure
+propagates. This is not production custody, filesystem power-loss or anti-rollback
+infrastructure verification. Without the opt-in P11's original fixture still runs.

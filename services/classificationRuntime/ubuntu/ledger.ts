@@ -189,7 +189,7 @@ export const openLocalLedger = async (options: LocalLedgerOptions): Promise<Loca
         }, false);
       },
       async begin(q, signal) {
-        if (signal.aborted || !exact(q, ['binding', 'requestId', 'mode']) || !uuid(q.requestId)) throw unavailable();
+        if (signal.aborted || !exact(q, ['binding', 'requestId', 'mode']) || !uuid(q.requestId) || !exact(q.binding, ['version', 'deploymentId', 'revision', 'policyDigest', 'databaseName'])) throw unavailable();
         return transaction(async s => {
           const exists = sql.prepare('SELECT id FROM admissions WHERE id=?').get(q.requestId);
           const allowed = current(s, q) && owned(s) && ['prepare', 'apply', 'reconcile'].includes(q.mode) && s.gates[q.mode] && !s.maintenance && count() < 32;
@@ -208,7 +208,7 @@ export const openLocalLedger = async (options: LocalLedgerOptions): Promise<Loca
         }, true);
       },
       async reserve(q, signal) {
-        if (signal.aborted || !exact(q, ['binding', 'requestId', 'materialId', 'maximum', 'issueUntil']) || !uuid(q.requestId) || !digest(q.materialId)) throw unavailable();
+        if (signal.aborted || !exact(q, ['binding', 'requestId', 'materialId', 'maximum', 'issueUntil']) || !uuid(q.requestId) || !digest(q.materialId) || !exact(q.binding, ['version', 'deploymentId', 'revision', 'policyDigest', 'databaseName'])) throw unavailable();
         return transaction(async s => {
           const key = s.config.keys.find(k => k.kid === s.config.issuingKid);
           let ordinal = Number(sql.prepare('SELECT used FROM materials WHERE identity=?').get(q.materialId)?.used ?? 0), state = 'denied';

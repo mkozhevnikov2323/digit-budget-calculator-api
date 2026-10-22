@@ -57,6 +57,6 @@ async function fixture(databaseName) {
       await a.anchor.advance({ expected, next: { version: 'classification-local-checkpoint-v1', ledgerId: options.ledgerId,
         sequence: s.sequence, commitment: s.commitment }, policy: s.config, approvalId: null });
     },
-    cleanup() { for (const h of handles) h.close(); fs.rmSync(directory, { recursive: true, force: true }); } };
+    cleanup() { for (const h of handles) { try { h.close(); } catch (error) { if (error.code !== "ERR_INVALID_STATE") throw error; } } fs.rmSync(directory, { recursive: true, force: true }); } };
 }
 module.exports = { fixture, syntheticAnchor, evidence };

@@ -11,7 +11,7 @@ const owners = { a: 'a'.repeat(24), b: 'b'.repeat(24) };
 const primary = '1'.repeat(24), foreign = 'b1'.padStart(24, '0'), misc = '2'.repeat(24);
 const password = 'Fictional-browser-account-42!';
 let stage = 'guard';
-let h, runtime, authority, closed, baseline, manifest, lost;
+let h, runtime, authority, localProvider, closed, baseline, manifest, lost;
 const send = message => { if (process.connected) process.send(message); };
 const safeError = () => new Error('Disposable browser fixture failed; private details suppressed');
 const snapshot = async () => {
@@ -26,10 +26,12 @@ async function dispose() {
     lost?.mock.restore();
     let runtimeClosed = true;
     try { if (runtime) runtimeClosed = await runtime.shutdown(); } finally {
+      try { localProvider?.cleanup(); } finally {
       if (h) {
         const result = await h.close();
         assert.deepEqual(result, { dropped: true, disconnected: true, listenerClosed: true,
           logsClosed: true, directoryRemoved: true, environmentRestored: true });
+      }
       }
     }
     assert.equal(runtimeClosed, true, 'Operational admissions must drain before database disposal');
@@ -90,8 +92,12 @@ async function start() {
   if (process.env.BUDGET_BROWSER_DEFAULT_OFF !== '1') {
     const fixture = fixtureConfiguration(h.databaseName);
     authority = createSyntheticAuthority(fixture.config, fixture.materials);
+    if (process.env.BUDGET_BROWSER_LOCAL_PROVIDER === '1') {
+      localProvider = await require('../helpers/ubuntu-runtime.cjs').createLocalRuntimeFixture(h.databaseName);
+      authority = localProvider;
+    }
     const installed = await require('../../dist/services/classificationRuntime/install').installSecureClassificationRuntime(
-      require('../../dist/app'), h.mongoose.connection, fixture.config, authority.providers(), 'isolated-test');
+      require('../../dist/app'), h.mongoose.connection, localProvider?.config ?? fixture.config, authority.providers(), 'isolated-test');
     assert.equal(installed.ok, true, 'Explicit synthetic operational dependencies must pass real preflight');
     runtime = installed.value;
   }
