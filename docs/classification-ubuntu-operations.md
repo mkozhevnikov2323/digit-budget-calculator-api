@@ -47,7 +47,7 @@ Mongo checks use an already approved explicit connection with interactive passwo
 prompt/approved credential mechanism; no credentials in URI/argv/logging. Metadata
 only: `ping`, `buildInfo`, `hello`, current connection namespace, targeted
 listCollections/listIndexes. A separate authorized operator (NOT newly privileged
-Node service) checks `getParameter:{featureCompatibilityVersion:1}`, actual roles,
+Node service) checks `db.adminCommand({getParameter:1, featureCompatibilityVersion:1})`, actual roles,
 standalone/replica/sharding/write concern/durability, catalog and backup constraints.
 Do not query financial/users collections or print raw role/config objects; return
 only closed pass/fail/version facts. `inspectUbuntuMongo(connection, config,
@@ -55,6 +55,22 @@ reviewedEvidence)` reuses exact manifest inspection. FCV/evidence booleans must 
 from actual current operator verification; the adapter cannot establish them itself.
 Absent namespace returns exactly **MIGRATION REQUIRED — NOT EXECUTED**. Metadata
 readiness is not operational readiness or authority to migrate/activate.
+
+Example metadata-only script for an ALREADY authorized interactive mongosh session
+with an explicitly selected namespace (do not run it against an unapproved target):
+
+```js
+const admin = db.getSiblingDB('admin');
+const build = admin.runCommand({buildInfo: 1, maxTimeMS: 3000});
+const fcv = admin.runCommand({getParameter: 1, featureCompatibilityVersion: 1, maxTimeMS: 3000});
+print(JSON.stringify({namespaceMatches: db.getName() === '<APPROVED_DATABASE_NAME>',
+  mongoMajor: build.ok === 1 ? build.versionArray[0] : null,
+  fcv: fcv.ok === 1 ? fcv.featureCompatibilityVersion.version : null}));
+```
+
+No financial query, URI, password, roles or raw error object is printed. An unavailable
+FCV result is UNVERIFIED; do not grant the application administrative privileges to
+make it pass. The local adapter preserves this evidence boundary.
 
 ## Disabled systemd templates and composition
 
