@@ -94,3 +94,14 @@ write can still finish after disablement; local drain is not fleet drain. Real
 secret custody, durable fleet ledger/anti-rollback checkpoints, credible time,
 DDL/restore exclusion, privileges, lifecycle and backups remain OPERATIONALLY
 UNVERIFIED. Production activation is NOT APPROVED by code/tests/CI.
+
+## P11.1 standalone Ubuntu adapters (dependent work)
+
+Concrete built-in SQLite authority, protected credential-directory provider, strict
+chrony health adapter and optional composition are added under `ubuntu/`. See
+[ledger/rollback boundary](classification-ubuntu-ledger.md), [credentials/time](classification-ubuntu-security-providers.md)
+and [disabled templates, preflight and restore procedure](classification-ubuntu-operations.md).
+They do not change the baseline app/server wiring. Independently protected ledger/
+time anchors are mandatory ports, NOT newly provisioned infrastructure. Home Ubuntu
+storage/systemd/chrony/MongoFCV/custody/privileges remain UNVERIFIED, installation/
+migration/deployment/activation NOT APPROVED. Synthetic tests cannot promote them.

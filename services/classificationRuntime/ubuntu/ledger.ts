@@ -2,7 +2,7 @@
  * The independently protected anchor is MANDATORY, including on every read.
  * SQLite alone cannot distinguish a valid old snapshot from current state. */
 import { DatabaseSync } from 'node:sqlite';
-import { constants, closeSync, fsyncSync, lstatSync, openSync, realpathSync } from 'node:fs';
+import { constants, closeSync, fsyncSync, lstatSync, openSync, realpathSync, readFileSync } from 'node:fs';
 import { join, isAbsolute } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { plain, uint, digest, ISSUANCE_LIMIT, runtimePolicyDigest, validateRuntimeConfiguration,
@@ -45,6 +45,20 @@ export const privateDirectory = (path: unknown): path is string => {
     return s.isDirectory() && !s.isSymbolicLink() && s.uid === process.geteuid?.() && (s.mode & 0o777) === 0o700;
   } catch { return false; }
 };
+/** Kernel process incarnation, not a PID file. PID reuse across boot/process
+ * start cannot inherit a writer claim even when configuration copies writerId. */
+const incarnation = (): string => {
+  const boot = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
+  const stat = readFileSync('/proc/self/stat', 'utf8');
+  const start = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+  if (!uuid(boot) || stat.length > 4096 || !start || start.length > 20 || /[^0-9]/.test(start)) throw unavailable();
+  return `${boot}:${process.pid}:${start}`;
+};
+const writerToken = (x: unknown): x is string => {
+  if (typeof x !== 'string' || x.length > 128) return false;
+  const parts = x.split(':'); return parts.length === 4 && uuid(parts[0]) && uuid(parts[1])
+    && parts.slice(2).every(n => n.length > 0 && n.length <= 20 && !/[^0-9]/.test(n));
+};
 const ownedFile = (path: string) => {
   const s = lstatSync(path);
   if (!s.isFile() || s.isSymbolicLink() || s.nlink !== 1 || s.uid !== process.geteuid?.() || (s.mode & 0o777) !== 0o600) throw unavailable();
@@ -57,6 +71,7 @@ CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), state TEXT NOT NULL) 
 CREATE TABLE materials (identity TEXT PRIMARY KEY, used INTEGER NOT NULL CHECK(used>=0 AND used<=1048576)) STRICT;
 CREATE TABLE requests (id TEXT PRIMARY KEY, material TEXT NOT NULL REFERENCES materials(identity), ordinal INTEGER NOT NULL CHECK(ordinal>0 AND ordinal<=1048576)) STRICT;
 CREATE TABLE admissions (id TEXT PRIMARY KEY, writer TEXT NOT NULL, digest TEXT NOT NULL, mode TEXT NOT NULL CHECK(mode IN ('prepare','apply','reconcile')), closed INTEGER NOT NULL CHECK(closed IN (0,1))) STRICT;
+CREATE INDEX active_admissions ON admissions(id) WHERE closed=0;
 PRAGMA user_version=1;`;
 
 /** Explicit genesis only. Approval is metadata for the anchor to verify, not a
@@ -115,9 +130,11 @@ export const openLocalLedger = async (options: LocalLedgerOptions): Promise<Loca
   let db: DatabaseSync | undefined;
   try {
     if (!validOptions(options)) return;
-    const path = join(options.directory, 'authority.sqlite'), inode = ownedFile(path);
+    const path = join(options.directory, 'authority.sqlite'), inode = ownedFile(path), writer = `${options.writerId}:${incarnation()}`;
     db = new DatabaseSync(path, { allowExtension: false }); configure(db);
-    if (db.prepare('PRAGMA user_version').get()?.user_version !== 1 || db.prepare('PRAGMA quick_check(1)').get()?.quick_check !== 'ok') throw unavailable();
+    if (db.prepare('PRAGMA user_version').get()?.user_version !== 1 || db.prepare('PRAGMA quick_check(1)').get()?.quick_check !== 'ok'
+      || db.prepare("SELECT sql FROM sqlite_schema WHERE type='index' AND name='active_admissions'").get()?.sql
+        !== 'CREATE INDEX active_admissions ON admissions(id) WHERE closed=0') throw unavailable();
     const sql = db; let closed = false, poisoned = false, busy = false, waiting = 0;
     let queue: Promise<unknown> = Promise.resolve();
     const read = (): State => {
@@ -127,7 +144,7 @@ export const openLocalLedger = async (options: LocalLedgerOptions): Promise<Loca
       const c = validateRuntimeConfiguration(r?.config), g = r && exact(r.gates, ['prepare', 'apply', 'reconcile']);
       if (!r || !c.ok || !uint(r.sequence) || r.sequence < 1 || !digest(r.commitment) || !uuid(r.approvalId) || !g
         || Object.values(g).some(v => typeof v !== 'boolean') || typeof r.maintenance !== 'boolean'
-        || !uuid(r.nonce) || !(r.writer === null || uuid(r.writer)) || !uint(r.timeHighWater)) throw unavailable();
+        || !uuid(r.nonce) || !(r.writer === null || writerToken(r.writer)) || !uint(r.timeHighWater)) throw unavailable();
       return { ...r, config: c.value, gates: g } as State;
     };
     const verify = async (s: State) => {
@@ -172,7 +189,10 @@ export const openLocalLedger = async (options: LocalLedgerOptions): Promise<Loca
     };
     const receipt = (q: EvidenceRequest, version: string, extra: object) => ({ version, requestId: q.requestId, policyDigest: q.binding.policyDigest, ...extra });
     const count = () => Number(sql.prepare('SELECT count(*) AS n FROM admissions WHERE closed=0').get()!.n);
-    const owned = (s: State) => s.writer === options.writerId;
+    const owned = (s: State) => s.writer === writer;
+    // Trusted quota workers can share the approved identity, but cannot acquire
+    // HTTP/source admissions, release leases or control a different process.
+    const quotaWorker = (s: State) => s.writer?.startsWith(options.writerId + ':') === true;
     const now = async (s: State, signal: AbortSignal) => {
       const t = await providerCall(abort => options.utc(abort));
       if (!uint(t) || t < s.timeHighWater) throw unavailable(); s.timeHighWater = t; return Math.floor(t / 1000);
@@ -189,12 +209,12 @@ export const openLocalLedger = async (options: LocalLedgerOptions): Promise<Loca
         }, false);
       },
       async begin(q, signal) {
-        if (signal.aborted || !exact(q, ['binding', 'requestId', 'mode']) || !uuid(q.requestId)) throw unavailable();
+        if (signal.aborted || !exact(q, ['binding', 'requestId', 'mode']) || !uuid(q.requestId) || !exact(q.binding, ['version', 'deploymentId', 'revision', 'policyDigest', 'databaseName'])) throw unavailable();
         return transaction(async s => {
           const exists = sql.prepare('SELECT id FROM admissions WHERE id=?').get(q.requestId);
           const allowed = current(s, q) && owned(s) && ['prepare', 'apply', 'reconcile'].includes(q.mode) && s.gates[q.mode] && !s.maintenance && count() < 32;
           const state = !allowed ? 'denied' : exists ? 'duplicate' : 'admitted';
-          if (state === 'admitted') sql.prepare('INSERT INTO admissions VALUES(?,?,?,?,0)').run(q.requestId, options.writerId, q.binding.policyDigest, q.mode);
+          if (state === 'admitted') sql.prepare('INSERT INTO admissions VALUES(?,?,?,?,0)').run(q.requestId, writer, q.binding.policyDigest, q.mode);
           return receipt(q, 'classification-lease-v1', { state });
         }, true);
       },
@@ -202,18 +222,18 @@ export const openLocalLedger = async (options: LocalLedgerOptions): Promise<Loca
         if (signal.aborted || !exact(q, ['binding', 'requestId', 'mode']) || !uuid(q.requestId) || !exact(q.binding, ['version', 'deploymentId', 'revision', 'policyDigest', 'databaseName'])) throw unavailable();
         return transaction(async () => {
           const row = sql.prepare('SELECT * FROM admissions WHERE id=?').get(q.requestId);
-          if (!row || row.writer !== options.writerId || row.digest !== q.binding.policyDigest || row.mode !== q.mode) throw unavailable();
+          if (!row || row.writer !== writer || row.digest !== q.binding.policyDigest || row.mode !== q.mode) throw unavailable();
           sql.prepare('UPDATE admissions SET closed=1 WHERE id=?').run(q.requestId);
           return receipt(q, 'classification-lease-v1', { state: 'closed' });
         }, true);
       },
       async reserve(q, signal) {
-        if (signal.aborted || !exact(q, ['binding', 'requestId', 'materialId', 'maximum', 'issueUntil']) || !uuid(q.requestId) || !digest(q.materialId)) throw unavailable();
+        if (signal.aborted || !exact(q, ['binding', 'requestId', 'materialId', 'maximum', 'issueUntil']) || !uuid(q.requestId) || !digest(q.materialId) || !exact(q.binding, ['version', 'deploymentId', 'revision', 'policyDigest', 'databaseName'])) throw unavailable();
         return transaction(async s => {
           const key = s.config.keys.find(k => k.kid === s.config.issuingKid);
           let ordinal = Number(sql.prepare('SELECT used FROM materials WHERE identity=?').get(q.materialId)?.used ?? 0), state = 'denied';
           if (sql.prepare('SELECT id FROM requests WHERE id=?').get(q.requestId)) state = 'duplicate';
-          else if (current(s, q) && owned(s) && !s.maintenance && s.gates.prepare && s.gates.apply && s.gates.reconcile && key?.state === 'active'
+          else if (current(s, q) && quotaWorker(s) && !s.maintenance && s.gates.prepare && s.gates.apply && s.gates.reconcile && key?.state === 'active'
             && key.materialId === q.materialId && q.maximum === ISSUANCE_LIMIT && q.issueUntil === key.issueUntil) {
             const utc = await now(s, signal);
             if (utc >= key.issueFrom && utc < key.issueUntil) {
@@ -230,7 +250,7 @@ export const openLocalLedger = async (options: LocalLedgerOptions): Promise<Loca
     };
     const safe = async (work: (s: State) => Promise<boolean>) => { try { return await transaction(work, true); } catch { return false; } };
     return Object.freeze({ authority,
-      claimWriter: () => safe(async s => { if (s.writer !== null && !owned(s)) return false; s.writer = options.writerId; return true; }),
+      claimWriter: () => safe(async s => { if (s.writer !== null) return false; s.writer = writer; return true; }),
       releaseWriter: () => safe(async s => { if (!owned(s) || count() || Object.values(s.gates).some(Boolean)) return false; s.writer = null; return true; }),
       setGates: input => safe(async s => {
         const g = exact(input, ['prepare', 'apply', 'reconcile']);

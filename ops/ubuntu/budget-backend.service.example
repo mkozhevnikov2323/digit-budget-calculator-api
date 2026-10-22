@@ -1,0 +1,47 @@
+# DISABLED REVIEW TEMPLATE. Not installed/enabled. Replace EVERY <...> only after
+# read-only host preflight, external anchor review and explicit deployment approval.
+# No [Install] section. app.ts/server.ts do not install the secure runtime.
+[Unit]
+Description=Budget Calculator backend (operator-reviewed local runtime)
+After=<MONGODB_SYSTEM_UNIT> time-sync.target
+Wants=time-sync.target
+Requires=<MONGODB_SYSTEM_UNIT>
+StartLimitIntervalSec=60
+StartLimitBurst=3
+ConditionPathExists=<EXPLICIT_OPERATOR_ACTIVATION_APPROVAL_FILE>
+
+[Service]
+Type=simple
+User=<DEDICATED_SERVICE_USER>
+Group=<DEDICATED_SERVICE_GROUP>
+# Existing Winston File paths are relative to cwd; use a private writable log cwd.
+# Review dotenv/startup paths explicitly; do not copy application .env into logs.
+WorkingDirectory=<PRIVATE_LOG_DIRECTORY>
+ExecStart=<ABSOLUTE_NODE22_PATH> <REVIEWED_COMPILED_COMPOSITION_ENTRYPOINT>
+# The entrypoint is NOT server.js: it must implement the approved provider wiring,
+# fresh writer identity, explicit gates and awaited SIGTERM shutdown. Not supplied
+# as an auto-deploy script; missing independent anchors MUST block secure writes.
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+KillMode=control-group
+# Timeout must not silently force-kill and then treat unknown leases as drained.
+SendSIGKILL=no
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+StateDirectory=<OPERATOR_APPROVED_STATE_NAME>
+StateDirectoryMode=0700
+LogsDirectory=<OPERATOR_APPROVED_LOG_NAME>
+LogsDirectoryMode=0700
+ReadWritePaths=<PRIVATE_LEDGER_DIRECTORY> <PRIVATE_LOG_DIRECTORY>
+ReadOnlyPaths=<READ_ONLY_APPLICATION_DIRECTORY>
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LimitCORE=0
+# Review credential directives in credentials.conf.example. Never put AES/JWT/DB
+# secrets in Environment=, arguments or journal output. No feature flags supplied.
+# Bind backend to reviewed loopback address/port. CORS/ingress/TLS remain separate.
+# No PrivateNetwork: it would hide host MongoDB and chronyd loopback listeners.

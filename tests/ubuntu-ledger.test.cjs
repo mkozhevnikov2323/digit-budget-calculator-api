@@ -40,7 +40,8 @@ describe('P11.1 real SQLite authority; synthetic external anchor, no host activa
       const h = await f.open(); assert.deepEqual(await h.status(), { active: 0, writerClaimed: false, maintenance: true });
       assert.equal(fs.statSync(path.join(f.directory, 'authority.sqlite')).mode & 0o777, 0o600);
       const db = new DatabaseSync(path.join(f.directory, 'authority.sqlite'));
-      assert.equal(db.prepare('PRAGMA journal_mode').get().journal_mode, 'delete'); db.close();
+      assert.equal(db.prepare('PRAGMA journal_mode').get().journal_mode, 'delete');
+      assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_schema WHERE type='index' AND name='active_admissions'").get().n, 1); db.close();
     } finally { f.cleanup(); }
   });
   it('retains quota, duplicate request IDs and failed encryption reservations after restart', async () => setup(async (f, h) => {
@@ -84,6 +85,14 @@ describe('P11.1 real SQLite authority; synthetic external anchor, no host activa
     assert.equal(await child(f, 'claim'), false); f.options.writerId = prior;
     assert.equal(await h.releaseWriter(), false);
   }));
+  it('retains an orphan writer after its actual process is killed and refuses takeover', async () => {
+    const f = await fixture(); try {
+      assert.equal(await f.initialize(), true); assert.equal(await child(f, 'claim', undefined, true), true);
+      const reopened = await f.open(); assert.equal(await reopened.claimWriter(), false);
+      assert.equal(await reopened.setGates({ prepare: true, apply: true, reconcile: true }), false);
+      assert.equal((await reopened.status()).writerClaimed, true);
+    } finally { f.cleanup(); }
+  });
   it('persists request-lifetime leases and blocks maintenance after crash/reopen', async () => setup(async (f, h) => {
     const q = f.request({ mode: 'apply' }); assert.equal((await h.authority.begin(q, signal())).state, 'admitted');
     assert.equal((await h.authority.begin(q, signal())).state, 'duplicate'); f.close(h); h = await f.open();

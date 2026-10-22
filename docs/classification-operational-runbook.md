@@ -197,3 +197,8 @@ read-only recovery, no startup DDL/financial reads, exact preflight, and an owne
 BSON restore/new-era drill. P10 now installs this same managed adapter with
 synthetic providers while retaining all 14 unchanged browser scenarios and its
 flags-only/default-off test. Frontend pins the exact reviewed backend SHA.
+
+P11.1 adds optional concrete single-host adapters without activating this procedure:
+see [Ubuntu operations](classification-ubuntu-operations.md). The earlier provider
+candidate matrix records P11's baseline. SQLite alone still provides no whole-disk
+anti-rollback; missing independent anchors intentionally block operational use.
