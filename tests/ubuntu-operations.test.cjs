@@ -82,6 +82,21 @@ describe('P11.1 concrete local provider shutdown and failure boundaries', { conc
     const db = new DatabaseSync(path.join(local.f.directory, 'authority.sqlite'), { readOnly: true });
     assert.equal(db.prepare('SELECT used FROM materials').get().used, 0); db.close();
   }));
+  it('does not let another process with copied writer identity claim or maintain the writer', async () => setup(async local => {
+    const c = fork(path.join(__dirname, 'helpers/ubuntu-ledger-child.cjs'), [], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+    const result = new Promise((resolve, reject) => {
+      let claimed; const timer = setTimeout(() => { c.kill('SIGTERM'); reject(Error('Child deadline')); }, 5000);
+      c.on('message', async m => {
+        if (m.type === 'done') claimed = m.result;
+        if (m.type === 'anchor') { try { c.send({ type: 'reply', id: m.id, ok: true, value: await local.f.anchor[m.method](m.q) }); }
+          catch { c.send({ type: 'reply', id: m.id, ok: false }); } }
+      });
+      c.on('error', reject); c.on('exit', code => { clearTimeout(timer); code === 0 ? resolve(claimed) : reject(Error('Child failed')); });
+    });
+    const { anchor, evidence, utc, ...options } = local.f.options;
+    c.send({ type: 'start', options, evidence: require('./helpers/ubuntu-ledger.cjs').evidence, action: 'probe', request: local.f.request({ mode: 'apply' }) });
+    assert.deepEqual(await result, { claim: false, admission: 'denied', gates: false }); assert.equal((await local.ledger.status()).writerClaimed, true);
+  }));
   it('rolls back an actual interrupted SQLite transaction after SIGKILL', async () => {
     const f = await fixture(); try {
       assert.equal(await f.initialize(), true);

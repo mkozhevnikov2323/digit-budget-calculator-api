@@ -41,6 +41,8 @@ directory creation, corruption deletion, empty-ledger fallback or repair.
 Schema v1: metadata current closed policy/revision/era/gates/writer/time high-water/
 checkpoint; materials lifetime counts <=1048576; requests durable unique reservation
 IDs/material/ordinal; admissions unique IDs/writer/digest/mode/closed tombstones.
+A partial index on active admissions bounds drain/readiness scans despite retained
+closed tombstones; it is created only at explicit genesis, never repaired on open.
 SQL CHECK/UNIQUE constraints complement the approved runtime validation. No MongoDB
 operational collection is used. SQLite quick_check rejects observed corruption;
 this is not an exhaustive media-health or malicious-root integrity proof.
@@ -76,11 +78,16 @@ no keys. Tests use random disposable keys and synthetic approvals only.
 
 ## Admission, restart and maintenance
 
-One durable approved writer identity; independent claim cannot replace it. Systemd
+One durable approved writer identity bound to kernel boot ID, PID and process start
+ticks; even a copied configuration ID cannot claim another process's admissions/controls.
+A duplicate claim is rejected. Independent claim cannot replace it. Systemd
 must supply fresh identity per actual writer incarnation through reviewed composition.
-It is an internal capability selector, NOT OS fencing or authentication; copied IDs
-and hostile same-UID code are outside its protection. Tests may share an approved
-identity across trusted quota workers to exercise independent SQLite connections.
+It is an internal capability selector, NOT full OS fencing or authentication;
+hostile same-UID code/root or copied credentials are outside its protection. Tests may share an approved
+identity across trusted quota-only workers to exercise independent SQLite connections;
+such workers cannot attest/admit HTTP work, close another process's lease or administer
+gates. Their shared quota never grants financial write admission. A killed writer
+incarnation remains blocked for the next process, even if its PID is later reused.
 
 Request leases survive restart and have NO TTL. Closed IDs remain tombstones.
 Unknown release fails; SIGKILL does not free a lease or writer. Clean shutdown:
