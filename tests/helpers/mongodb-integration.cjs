@@ -35,15 +35,17 @@ function assertOwnedDatabase(connection, databaseName) {
   assert.equal(connection.db.databaseName, databaseName, 'Active driver database does not match this execution');
 }
 
-async function openTestDatabase(mongoose, env) {
+async function openTestDatabase(mongoose, env, monitorCommands = false) {
   // Validate before even inspecting Mongoose, much less opening a connection.
   const config = testConfiguration(env);
+  assert.equal(typeof monitorCommands, 'boolean', 'Test observability option must be boolean');
   const connection = mongoose.connection;
   assert.equal(connection.readyState, 0, 'Refusing to reuse an existing Mongoose connection');
   try {
     await mongoose.connect(config.baseUri, {
       dbName: config.databaseName, serverSelectionTimeoutMS: 5000,
       connectTimeoutMS: 5000, socketTimeoutMS: 5000, autoIndex: false, autoCreate: false,
+      ...(monitorCommands ? { monitorCommands: true } : {}),
     });
     assertOwnedDatabase(connection, config.databaseName);
   } catch {
@@ -84,11 +86,11 @@ async function bounded(promise, label) {
   } finally { clearTimeout(timer); }
 }
 
-async function createHarness(env) {
+async function createHarness(env, monitorCommands = false) {
   // Reject unsafe configuration before loading any application modules or logging.
   testConfiguration(env);
   const mongoose = require('mongoose');
-  const database = await openTestDatabase(mongoose, env);
+  const database = await openTestDatabase(mongoose, env, monitorCommands);
   const originalCwd = process.cwd();
   const names = ['NODE_ENV', 'JWT_SECRET', 'DEFAULT_ALLOWED_METHODS'];
   const savedEnv = Object.fromEntries(names.map(name => [name, process.env[name]]));
