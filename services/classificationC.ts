@@ -19,10 +19,7 @@ import {
   readStoredDecision,
   effectiveClassification,
 } from './classificationObservation';
-import {
-  createClassificationWriteService,
-  type WriteResult,
-} from './classificationWrite';
+import type { WriteResult } from './classificationWrite';
 
 type Context = {
   owner: string;
@@ -43,6 +40,9 @@ const TTL = 300000,
 export const createClassificationC = (
   connection: Connection,
 ): RequestHandler => {
+  // Preserve the default-off application contract: no writer import until C is used.
+  const { createClassificationWriteService } =
+    require('./classificationWrite') as typeof import('./classificationWrite');
   const contexts = new Map<string, Context>();
   const writer = createClassificationWriteService(connection, {
     resolveAuthenticatedOwner: (context) => ({
@@ -177,17 +177,15 @@ export const createClassificationC = (
           retainUntil: deadline + RETENTION,
           attempted: false,
         });
-        res
-          .status(200)
-          .json({
-            version: VERSION,
-            preparationId,
-            expiresAt,
-            command,
-            facts: source.value.facts,
-            currentDecision: decision,
-            consistency: 'observed_only_non_atomic',
-          });
+        res.status(200).json({
+          version: VERSION,
+          preparationId,
+          expiresAt,
+          command,
+          facts: source.value.facts,
+          currentDecision: decision,
+          consistency: 'observed_only_non_atomic',
+        });
         return;
       }
       const r = readWriteFields(req.body, [
@@ -306,6 +304,17 @@ export const createClassificationC = (
 let handler: RequestHandler | undefined;
 /** Lazy default connection binding, no connection/bootstrap side effects. */
 export const classificationC: RequestHandler = (req, res, next) => {
+  if (process.env.CLASSIFICATION_C_WRITE_ENABLED !== '1') {
+    res.set('Cache-Control', 'no-store');
+    res
+      .status(503)
+      .json({
+        version: VERSION,
+        error: { code: 'unavailable' },
+        persistence: 'not_applied',
+      });
+    return;
+  }
   handler ??= createClassificationC(mongoose.connection);
   return handler(req, res, next);
 };
