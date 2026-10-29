@@ -5,7 +5,7 @@ import { sendClassificationHttpError } from '../services/classificationHttpError
 
 export const isClassificationPost = (method: string, path: string): boolean => method === 'POST'
   && (/^\/classifications\/history\/read\/?$/.test(path)
-    || /^\/classifications\/[^/]+\/[^/]+\/(reviews|commands|commands\/reconcile)\/?$/.test(path));
+    || /^\/classifications\/[^/]+\/[^/]+\/(reviews|commands|commands\/reconcile|c-v1\/(?:prepare|apply|reconcile))\/?$/.test(path));
 
 /** Validate JSON syntax first, then scan its tokens to reject duplicate decoded
  * object keys (including escaped aliases). Bounded input/depth; never echo text. */
