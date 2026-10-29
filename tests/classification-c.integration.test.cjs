@@ -292,6 +292,8 @@ describe(
               .collection(dataset)
               .updateOne({ _id: oid(id) }, { $set: { amount: 99 } });
           const r = await apply(p);
+          assert.equal(r.status, change === 'delete' ? 404 : 409);
+          assert.equal((await apply(p)).status, r.status);
           assert.equal(r.body.result.ok, false);
           assert.equal(
             r.body.result.error.code,
@@ -488,6 +490,96 @@ describe(
       mock.method(performance, 'now', () => tick + 300001);
       assert.equal((await apply(p)).status, 410);
       assert.equal(await collection.countDocuments(), 0);
+    });
+    it('maps source infrastructure failure to 503 for initial and cached result', async () => {
+      const p = await prepare();
+      const proto = h.mongoose.mongo.Collection.prototype,
+        original = proto.findOne;
+      mock.method(proto, 'findOne', async function (...args) {
+        if (this.collectionName === 'expenses')
+          throw new Error('Synthetic source unavailable');
+        return Reflect.apply(original, this, args);
+      });
+      for (let i = 0; i < 2; i++) {
+        const r = await apply(p);
+        assert.equal(r.status, 503);
+        assert.equal(r.body.result.error.code, 'source_unavailable');
+        assert.equal(r.body.result.persistence, 'not_applied');
+      }
+    });
+    it('processes 300 historical operations while retaining uncertain reconciliation and rejecting evicted replays', async () => {
+      const uncertain = await prepare();
+      const proto = h.mongoose.mongo.Collection.prototype,
+        original = proto.insertOne;
+      const trap = mock.method(proto, 'insertOne', async function (...args) {
+        const result = await Reflect.apply(original, this, args);
+        if (this.collectionName === manifest.collectionName)
+          throw new Error('Synthetic lost acknowledgement');
+        return result;
+      });
+      const lost = await apply(uncertain);
+      assert.equal(lost.status, 503);
+      assert.equal(lost.body.result.persistence, 'unknown');
+      trap.mock.restore();
+      const rows = Array.from({ length: 300 }, (_, i) => ({
+        _id: oid((i + 100).toString(16).padStart(24, '0')),
+        owner: oid(owner),
+        amount: 1,
+        date: new Date('2025-01-15T12:00:00Z'),
+        category: 'Synthetic',
+        title: 'Synthetic',
+        recipient: 'Synthetic',
+      }));
+      await db.collection('expenses').insertMany(rows);
+      const before = await db
+        .collection('expenses')
+        .find({})
+        .sort({ _id: 1 })
+        .toArray();
+      let first;
+      for (const row of rows) {
+        const op = row._id.toHexString(),
+          path = `/classifications/expenses/${op}/c-v1/`;
+        const p = await h.request(
+          'POST',
+          path + 'prepare',
+          { version, command: command({ operationId: op }) },
+          token(),
+        );
+        assert.equal(p.status, 200);
+        if (!first) first = { path, preparationId: p.body.preparationId };
+        const r = await h.request(
+          'POST',
+          path + 'apply',
+          {
+            version,
+            preparationId: p.body.preparationId,
+            confirmation: 'confirm_prepared_intent',
+          },
+          token(),
+        );
+        assert.equal(r.status, 201);
+      }
+      assert.equal(await collection.countDocuments(), 301);
+      const replay = await h.request(
+        'POST',
+        first.path + 'apply',
+        {
+          version,
+          preparationId: first.preparationId,
+          confirmation: 'confirm_prepared_intent',
+        },
+        token(),
+      );
+      assert.equal(replay.status, 410);
+      assert.equal(replay.body.persistence, 'unknown');
+      assert.equal((await reconcile(uncertain)).body.outcome, 'latest_applied');
+      assert.equal((await apply(uncertain)).status, 503);
+      assert.equal(await collection.countDocuments(), 301);
+      assert.deepEqual(
+        await db.collection('expenses').find({}).sort({ _id: 1 }).toArray(),
+        before,
+      );
     });
     it('bounds retained preparations and refuses excess without writes', async () => {
       let full = false;

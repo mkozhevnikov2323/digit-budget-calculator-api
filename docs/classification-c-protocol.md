@@ -24,7 +24,7 @@ All endpoints are POST, behind the existing JWT guard, under
   flag alone supplies no authority. The 256-bit random ID selects the server-owned
   prepared intent bound to authenticated owner AND exact bearer-session hash.
   Response `{version,result:<unchanged WriteResult>}`: 201 created, 200 updated/
-  replayed/cached acknowledgement; 409 known refusal, 503 uncertain write.
+  replayed/cached acknowledgement; 404 missing source, 409 conflict, 503 infrastructure failure or uncertain write.
 - `reconcile`: `{version,preparationId}`. Read only; returns
   `{version,outcome:"latest_applied"|"indeterminate",consistency}`. Match requires
   persisted requestId, canonical command hash, revision, state, assignment and
@@ -93,3 +93,19 @@ are therefore not a MongoDB 6 acceptance target and fail closed there; that chec
 is unchanged. C does not install that abandoned proof runtime. C, the exact
 manifest and existing writer are tested directly on disposable MongoDB 6.0.26;
 the full legacy regression suite additionally runs on CI's MongoDB 7.0.45.
+
+## Review corrections
+
+Writer errors map consistently on both first apply and cached receipts: missing
+source 404; source/infrastructure/persistence failures 503; actual stale/revision/
+request-id conflicts 409. Unknown persistence always remains unknown and HTTP 503.
+
+Capacity is concurrent retention, not a daily throughput quota. On pressure the
+oldest terminal known outcome (success or definitely not-applied) may be evicted.
+Pending and uncertain writes are never evicted to admit new work, so their bounded
+read-only reconciliation window survives ordinary successful history processing.
+Unused preparations also remain protected until expiry. All 256 slots being
+pending/uncertain/unused still fails closed with 503. Evicted IDs return 410/unknown
+and cannot invoke the writer, even with confirmation; never auto-prepare/reapply.
+Known-outcome receipt retention is therefore best-effort under pressure, up to the
+existing retention deadline. Restart and retention expiry limitations remain.

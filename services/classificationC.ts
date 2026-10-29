@@ -36,6 +36,31 @@ const TTL = 300000,
   RETENTION = 86400000,
   CAPACITY = 256;
 
+/** Keep known failures distinct from concurrency conflicts; never downgrade uncertainty. */
+const resultStatus = (result: WriteResult, initial = false): number => {
+  if (result.ok)
+    return initial && result.value.outcome === 'created' ? 201 : 200;
+  if (result.persistence === 'unknown') return 503;
+  switch (result.error.code) {
+    case 'source_not_found':
+      return 404;
+    case 'source_unavailable':
+    case 'malformed_source':
+    case 'infrastructure_unavailable':
+    case 'persistence_failure':
+      return 503;
+    case 'invalid_context':
+      return 401;
+    case 'invalid_command':
+      return 400;
+    case 'invalid_review':
+    case 'review_mismatch':
+      return 403;
+    default:
+      return 409;
+  }
+};
+
 /** New process/instance means a new empty context store. No timers, DDL or keys. */
 export const createClassificationC = (
   connection: Connection,
@@ -44,6 +69,21 @@ export const createClassificationC = (
   const { createClassificationWriteService } =
     require('./classificationWrite') as typeof import('./classificationWrite');
   const contexts = new Map<string, Context>();
+  // Evict only terminal KNOWN outcomes, never pending or uncertain writes.
+  // A missing old ID fails closed (410/unknown), never executes the writer.
+  const makeRoom = (): boolean => {
+    if (contexts.size < CAPACITY) return true;
+    for (const [id, context] of contexts) {
+      if (
+        context.result &&
+        (context.result.ok || context.result.persistence === 'not_applied')
+      ) {
+        contexts.delete(id);
+        return true;
+      }
+    }
+    return false;
+  };
   const writer = createClassificationWriteService(connection, {
     resolveAuthenticatedOwner: (context) => ({
       owner: (context as Context).owner,
@@ -113,7 +153,7 @@ export const createClassificationC = (
           fail(400, 'invalid_request');
           return;
         }
-        if (contexts.size >= CAPACITY) {
+        if (!makeRoom()) {
           fail(503, 'capacity_exceeded');
           return;
         }
@@ -155,7 +195,7 @@ export const createClassificationC = (
           return;
         }
         // Recheck after asynchronous observations to keep admission bounded.
-        if (contexts.size >= CAPACITY) {
+        if (!makeRoom()) {
           fail(503, 'capacity_exceeded');
           return;
         }
@@ -268,13 +308,7 @@ export const createClassificationC = (
       if (c.attempted) {
         if (c.result) {
           res
-            .status(
-              c.result.ok
-                ? 200
-                : c.result.persistence === 'unknown'
-                  ? 503
-                  : 409,
-            )
+            .status(resultStatus(c.result))
             .json({ version: VERSION, result: c.result });
           return;
         }
@@ -286,15 +320,7 @@ export const createClassificationC = (
       attempting = true;
       c.result = await writer.execute(c, c.command, c);
       res
-        .status(
-          c.result.ok
-            ? c.result.value.outcome === 'created'
-              ? 201
-              : 200
-            : c.result.persistence === 'unknown'
-              ? 503
-              : 409,
-        )
+        .status(resultStatus(c.result, true))
         .json({ version: VERSION, result: c.result });
     } catch {
       fail(503, 'unavailable', attempting ? 'unknown' : 'not_applied');
@@ -306,13 +332,11 @@ let handler: RequestHandler | undefined;
 export const classificationC: RequestHandler = (req, res, next) => {
   if (process.env.CLASSIFICATION_C_WRITE_ENABLED !== '1') {
     res.set('Cache-Control', 'no-store');
-    res
-      .status(503)
-      .json({
-        version: VERSION,
-        error: { code: 'unavailable' },
-        persistence: 'not_applied',
-      });
+    res.status(503).json({
+      version: VERSION,
+      error: { code: 'unavailable' },
+      persistence: 'not_applied',
+    });
     return;
   }
   handler ??= createClassificationC(mongoose.connection);
