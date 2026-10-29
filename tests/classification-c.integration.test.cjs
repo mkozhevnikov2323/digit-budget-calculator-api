@@ -14,7 +14,10 @@ describe(
   () => {
     let h, db, manifest, saved, collection;
     const token = (who = owner, extra = {}) =>
-      jwt.sign({ _id: who, exp: 4102444800, ...extra }, 'super-secret-key');
+      jwt.sign(
+        { _id: who, iat: 1700000000, exp: 4102444800, ...extra },
+        'super-secret-key',
+      );
     const call = (action, body, credential = token(), dataset = 'expenses') =>
       h.request(
         'POST',
