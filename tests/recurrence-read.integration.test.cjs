@@ -101,14 +101,20 @@ describe('real MongoDB owner-scoped read-only recurrence API', { concurrency: fa
     }
     assert.deepEqual(await snapshots(), before);
   });
-  it('rejects reversed, future, ongoing or more-than-12-month UTC windows', async () => {
-    for (const [start, end] of [
-      ['2025-05','2025-04'], ['2025-01','2026-02'], ['2099-01','2100-01'],
-      ['2026-10','2026-11'],
-    ]) {
-      const res = await get(a, '/analytics/recurrence?startMonth=' + start + '&endMonthExclusive=' + end);
-      assert.equal(res.status, 400);
-      assert.deepEqual(res.body, { message: 'Invalid completed UTC month range' });
+  it('rejects reversed, future, ongoing or more-than-12-month UTC windows', async (t) => {
+    // Keep October ongoing regardless of the date on which CI or a local drill runs.
+    t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-15T12:00:00.000Z') });
+    try {
+      for (const [start, end] of [
+        ['2025-05','2025-04'], ['2025-01','2026-02'], ['2099-01','2100-01'],
+        ['2026-10','2026-11'],
+      ]) {
+        const res = await get(a, '/analytics/recurrence?startMonth=' + start + '&endMonthExclusive=' + end);
+        assert.equal(res.status, 400);
+        assert.deepEqual(res.body, { message: 'Invalid completed UTC month range' });
+      }
+    } finally {
+      t.mock.timers.reset();
     }
   });
   it('refuses oversized datasets instead of publishing partial observations', async () => {

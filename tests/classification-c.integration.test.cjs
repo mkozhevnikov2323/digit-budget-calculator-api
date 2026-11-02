@@ -444,13 +444,28 @@ describe(
         false,
       );
     });
-    it('read and history APIs remain compatible after C write', async () => {
-      await apply(await prepare());
+    it('full manual create and revision cycle survives fresh reads and feeds history without changing sources', async () => {
       const old = process.env.CLASSIFICATION_READ_ENABLED;
       const oldHistory = process.env.CLASSIFICATION_HISTORY_READ_ENABLED;
       process.env.CLASSIFICATION_HISTORY_READ_ENABLED = '1';
       process.env.CLASSIFICATION_READ_ENABLED = '1';
       try {
+        const sourceBefore = await db.collection('expenses').findOne({ _id: oid(id) });
+        const incomeBefore = await db.collection('incomes').findOne({ _id: oid(id) });
+        const initial = await h.request(
+          'GET', `/classifications/expenses/${id}`, undefined, token(),
+        );
+        assert.equal(initial.status, 200);
+        assert.equal(initial.body.status, 'unreviewed');
+        assert.equal(initial.body.decisionRevision, null);
+        const first = await prepare();
+        assert.equal(first.currentDecision.status, 'unreviewed');
+        const created = await apply(first);
+        assert.equal(created.status, 201);
+        assert.equal(created.body.result.value.decisionRevision, 1);
+        const stored = await collection.findOne({ owner: oid(owner), dataset: 'expenses', operationId: oid(id) });
+        assert.equal(stored.decisionRevision, 1);
+        assert.deepEqual(stored.assignment, first.command.assignment);
         const r = await h.request(
           'GET',
           `/classifications/expenses/${id}`,
@@ -459,6 +474,32 @@ describe(
         );
         assert.equal(r.status, 200);
         assert.equal(r.body.status, 'approved');
+        assert.equal(r.body.decisionRevision, 1);
+        assert.deepEqual(r.body.confirmed, first.command.assignment);
+        const next = await prepare(command({
+          expectedRevision: 1,
+          assignment: { economicRole: 'ordinary_expense', layer: 'irregular' },
+        }));
+        const updated = await apply(next);
+        assert.equal(updated.status, 200);
+        assert.equal(updated.body.result.value.decisionRevision, 2);
+        const reread = await h.request(
+          'GET', `/classifications/expenses/${id}`, undefined, token(),
+        );
+        assert.equal(reread.status, 200);
+        assert.equal(reread.body.status, 'approved');
+        assert.equal(reread.body.decisionRevision, 2);
+        assert.deepEqual(reread.body.confirmed, next.command.assignment);
+        const duplicate = await apply(next);
+        assert.equal(duplicate.status, 200);
+        assert.equal(duplicate.body.result.value.decisionRevision, 2);
+        assert.equal(await collection.countDocuments({}), 1);
+        const stale = await call('prepare', { version, command: command({ expectedRevision: 1 }) });
+        assert.equal(stale.status, 409);
+        const foreignRead = await h.request(
+          'GET', `/classifications/expenses/${id}`, undefined, token(foreign),
+        );
+        assert.equal(foreignRead.status, 404);
         const history = await h.request(
           'POST',
           '/classifications/history/read',
@@ -475,6 +516,10 @@ describe(
           history.body.operations[0].classification.status,
           'approved',
         );
+        assert.equal(history.body.operations[0].classification.decisionRevision, 2);
+        assert.deepEqual(history.body.operations[0].classification.confirmed, next.command.assignment);
+        assert.deepEqual(await db.collection('expenses').findOne({ _id: oid(id) }), sourceBefore);
+        assert.deepEqual(await db.collection('incomes').findOne({ _id: oid(id) }), incomeBefore);
       } finally {
         if (oldHistory === undefined)
           delete process.env.CLASSIFICATION_HISTORY_READ_ENABLED;
