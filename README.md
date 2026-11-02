@@ -551,3 +551,18 @@ CI Node 22 сохраняет jobs `verify` и `mongodb-integration`; B3f logger
 review. Права доступа, retention/rotation и безопасное удаление старых логов —
 отдельная эксплуатационная задача. Уже записанные логи автоматически не
 очищаются и могут содержать чувствительные данные. Docker logging не меняется.
+
+## HTTP bind for local use
+
+With the existing database/auth configuration already supplied, run:
+
+```sh
+BUDGET_HTTP_HOST=127.0.0.1 PORT=3000 node dist/server.js
+```
+
+`PORT` defaults to 3000 and accepts only 1–5 decimal digits with a numeric value
+from 1 to 65535. It is always passed as a TCP port number, never a socket path.
+`BUDGET_HTTP_HOST` may be absent (existing deployment behavior) or exactly
+`127.0.0.1` (loopback only); any other explicit value, including empty, stops
+startup before application imports or database connection. MongoDB and auth
+configuration are unchanged. This setting does not activate Classification C.
