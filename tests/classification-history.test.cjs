@@ -17,6 +17,8 @@ describe('bounded new classification transport', () => {
   it('targets only the new POST routes', () => {
     for (const path of ['/classifications/history/read','/classifications/expenses/id/reviews','/classifications/incomes/id/commands',
       '/classifications/expenses/id/commands/reconcile']) assert.equal(isClassificationPost('POST',path),true);
+    assert.equal(isClassificationPost('PUT','/classifications/expenses/id/decision'),true);
+    assert.equal(isClassificationPost('PUT','/expenses/id'),false);
     assert.equal(isClassificationPost('GET','/classifications/expenses/id'),false);
     assert.equal(isClassificationPost('POST','/expenses'),false);
   });

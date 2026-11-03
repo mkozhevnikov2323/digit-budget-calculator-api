@@ -1,3 +1,4 @@
+const { classificationDecision } = require('../services/classificationDecision');
 const { classificationC } = require('../services/classificationC');
 const router = require('express').Router();
 const getClassification = require('../controllers/classificationRead');
@@ -5,6 +6,7 @@ const historyRead = require('../controllers/classificationHistoryRead');
 const { classificationProtocol } = require('../services/classificationProtocol');
 
 // Mounted only after the existing JWT guard. C is independently default-off.
+router.put('/:dataset/:operationId/decision', classificationDecision);
 router.get('/:dataset/:operationId', getClassification);
 router.post('/history/read', historyRead);
 router.post('/:dataset/:operationId/reviews', classificationProtocol);
