@@ -37,7 +37,7 @@ const TTL = 300000,
   CAPACITY = 256;
 
 /** Keep known failures distinct from concurrency conflicts; never downgrade uncertainty. */
-const resultStatus = (result: WriteResult, initial = false): number => {
+export const resultStatus = (result: WriteResult, initial = false): number => {
   if (result.ok)
     return initial && result.value.outcome === 'created' ? 201 : 200;
   if (result.persistence === 'unknown') return 503;

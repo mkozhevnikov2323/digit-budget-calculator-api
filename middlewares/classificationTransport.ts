@@ -1,9 +1,9 @@
-/** Narrow transport policy for the approved new POST protocol only. */
+/** Narrow transport policy for the classification POST protocols and the single-intent PUT. */
 import type { RequestHandler } from 'express';
 import bodyParser = require('body-parser');
 import { sendClassificationHttpError } from '../services/classificationHttpError';
 
-export const isClassificationPost = (method: string, path: string): boolean => method === 'POST'
+export const isClassificationPost = (method: string, path: string): boolean => method === 'PUT' && /^\/classifications\/[^/]+\/[^/]+\/decision\/?$/.test(path) || method === 'POST'
   && (/^\/classifications\/history\/read\/?$/.test(path)
     || /^\/classifications\/[^/]+\/[^/]+\/(reviews|commands|commands\/reconcile|c-v1\/(?:prepare|apply|reconcile))\/?$/.test(path));
 
