@@ -16,7 +16,7 @@ import {
   readStoredDecision,
   effectiveClassification,
 } from './classificationObservation';
-import { createClassificationWriteService } from './classificationWrite';
+
 import { resultStatus } from './classificationC';
 const VERSION = 'classification-decision-v1';
 type Intent = { owner: string; command: ManualCommand; review: VerifiedReview };
@@ -24,6 +24,8 @@ export const createClassificationDecision = (
   connection: Connection,
 ): RequestHandler => {
   const admitted = new WeakSet<Intent>();
+  // Preserve lazy writer loading: importing the Express app must not initialize its write service.
+  const { createClassificationWriteService } = require('./classificationWrite') as typeof import('./classificationWrite');
   const writer = createClassificationWriteService(connection, {
     resolveAuthenticatedOwner(context) {
       const c = context as Intent;
