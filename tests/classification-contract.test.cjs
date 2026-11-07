@@ -2,6 +2,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   PROVISIONAL_TAXONOMY_VERSION, ECONOMIC_ROLES, FINANCIAL_LAYERS,
+  TAXONOMY_VERSION_V2, ECONOMIC_ROLES_V2, validateClassificationDecisionV2,
   validateOperationIdentity, validateDecisionRevision,
   validateClassificationAssignment, validateClassificationDecision: validate,
 } = require('../dist/domain/classification.js');
@@ -267,4 +268,58 @@ describe('classification domain foundation (synthetic, pure, no persistence)', (
     assert.deepEqual(validateDecisionRevision(1), { ok: true, value: 1 });
     assert.deepEqual(validateDecisionRevision('1'), { ok: false, error: { code: 'invalid_decision_revision' } });
   });
+});
+
+const {
+  validateStableClassificationDecision, validateStableClassificationDecisionV2: validateV2,
+  STABLE_ROLE_DATASETS,
+} = require('../dist/domain/classification/stablePolicy.js');
+const v2 = (extra = {}) => decision({ taxonomyVersion: TAXONOMY_VERSION_V2, ...extra });
+const error = code => ({ ok: false, error: { code } });
+
+it('v2 requires an existing expense layer and excludes loan_issuance; v1 stays unchanged', () => {
+  assert.deepEqual(ECONOMIC_ROLES_V2, ECONOMIC_ROLES.filter(role => role !== 'loan_issuance'));
+  for (const layer of FINANCIAL_LAYERS) {
+    const input = v2({ assignment: { economicRole: 'ordinary_expense', layer } });
+    assert.deepEqual(validateV2(input), { ok: true, value: input });
+  }
+  for (const layer of [null, undefined, 'loan_issuance']) {
+    assert.deepEqual(validateV2(v2({ assignment: { economicRole: 'ordinary_expense', layer } })),
+      error('invalid_financial_layer'));
+  }
+  for (const layer of [null, 'emergency']) {
+    assert.deepEqual(validateV2(v2({ assignment: { economicRole: 'loan_issuance', layer } })).ok, false);
+  }
+  const legacy = decision({ taxonomyVersion: 'financial-classification-v1',
+    assignment: { economicRole: 'loan_issuance', layer: null } });
+  assert.deepEqual(validateStableClassificationDecision(legacy), { ok: true, value: legacy });
+  assert.deepEqual(validateV2(legacy), error('unsupported_taxonomy'));
+  assert.deepEqual(validate(v2()), error('unsupported_taxonomy'));
+  assert.equal(validateStableClassificationDecision(v2()).ok, false);
+});
+
+it('v2 keeps strict shape, decision states and remaining dataset/role compatibility', () => {
+  for (const role of ECONOMIC_ROLES_V2) {
+    for (const dataset of ['expenses', 'incomes']) {
+      const input = v2({ dataset, assignment: {
+        economicRole: role, layer: role === 'ordinary_expense' ? 'emergency' : null,
+      } });
+      assert.equal(validateV2(input).ok, STABLE_ROLE_DATASETS[role].includes(dataset));
+    }
+  }
+  for (const state of ['explicit_unclassified', 'cleared']) {
+    const input = without(v2({ state }), 'assignment');
+    assert.deepEqual(validateV2(input), { ok: true, value: input });
+    assert.deepEqual(validateV2(v2({ state })), error('unexpected_assignment'));
+  }
+  assert.deepEqual(validateV2(without(v2(), 'assignment')), error('missing_assignment'));
+  assert.deepEqual(validateV2(v2({ state: 'unreviewed' })), error('invalid_state'));
+  assert.deepEqual(validateV2(v2({ decisionRevision: 0 })), error('invalid_decision_revision'));
+  assert.deepEqual(validateV2(v2({ extra: true })), error('unexpected_field'));
+  assert.deepEqual(validateV2(v2({ assignment: { economicRole: 'refund', layer: 'emergency' } })),
+    error('invalid_financial_layer'));
+  assert.equal(validateClassificationDecisionV2(v2({ dataset: 'incomes' })).ok, true);
+  const accessor = Object.defineProperty(v2(), 'assignment', { enumerable: true,
+    get() { assert.fail('v2 must not invoke getters'); } });
+  assert.deepEqual(validateV2(accessor), error('invalid_object'));
 });

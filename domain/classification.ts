@@ -1,6 +1,8 @@
 /** Pure versioned domain contract. No IO, authorization, persistence or inference. */
 export const PROVISIONAL_TAXONOMY_VERSION = 'financial-layers-v1-provisional' as const;
 export const STABLE_TAXONOMY_VERSION = 'financial-classification-v1' as const;
+// Standalone contract only; legacy/runtime version support remains unchanged.
+export const TAXONOMY_VERSION_V2 = 'financial-classification-v2' as const;
 export type TaxonomyVersion = typeof PROVISIONAL_TAXONOMY_VERSION | typeof STABLE_TAXONOMY_VERSION;
 export const isSupportedTaxonomyVersion = (value: unknown): value is TaxonomyVersion =>
   value === PROVISIONAL_TAXONOMY_VERSION || value === STABLE_TAXONOMY_VERSION;
@@ -10,6 +12,8 @@ export const ECONOMIC_ROLES = Object.freeze([
   'refund', 'internal_transfer', 'capital_movement',
 ] as const);
 export type EconomicRole = typeof ECONOMIC_ROLES[number];
+export const ECONOMIC_ROLES_V2 = Object.freeze(ECONOMIC_ROLES.filter(role => role !== 'loan_issuance'));
+export type EconomicRoleV2 = typeof ECONOMIC_ROLES_V2[number];
 export const FINANCIAL_LAYERS = Object.freeze([
   'everyday', 'irregular', 'emergency', 'major_goals', 'long_term_capital',
 ] as const);
@@ -32,18 +36,24 @@ export type DecisionRevision = number & { readonly [revisionBrand]: true };
 export type ClassificationAssignment =
   | Readonly<{ economicRole: 'ordinary_expense'; layer: FinancialLayer }>
   | Readonly<{ economicRole: Exclude<EconomicRole, 'ordinary_expense'>; layer: null }>;
+export type ClassificationAssignmentV2 =
+  | Readonly<{ economicRole: 'ordinary_expense'; layer: FinancialLayer }>
+  | Readonly<{ economicRole: Exclude<EconomicRoleV2, 'ordinary_expense'>; layer: null }>;
 export type ClassificationState = 'approved' | 'explicit_unclassified' | 'cleared';
 /** Conceptual absence of a decision; never a persisted decision state. */
 export type UnreviewedState = 'unreviewed';
-type DecisionBase = OperationIdentity & Readonly<{
-  taxonomyVersion: TaxonomyVersion;
+type DecisionBase<Version extends string> = OperationIdentity & Readonly<{
+  taxonomyVersion: Version;
   decisionOrigin: 'manual';
   decisionRevision: DecisionRevision;
 }>;
-export type ClassificationDecision = DecisionBase & (
-  | Readonly<{ state: 'approved'; assignment: ClassificationAssignment }>
+type Decision<Version extends string, Assignment> = DecisionBase<Version> & (
+  | Readonly<{ state: 'approved'; assignment: Assignment }>
   | Readonly<{ state: 'explicit_unclassified' | 'cleared'; assignment?: never }>
 );
+
+export type ClassificationDecision = Decision<TaxonomyVersion, ClassificationAssignment>;
+export type ClassificationDecisionV2 = Decision<typeof TAXONOMY_VERSION_V2, ClassificationAssignmentV2>;
 
 export type ValidationErrorCode =
   | 'invalid_object' | 'unexpected_field' | 'invalid_owner' | 'invalid_dataset'
@@ -118,9 +128,21 @@ export const validateClassificationAssignment = (input: unknown): ValidationResu
   return success(Object.freeze({ economicRole: role, layer: null }));
 };
 
+export const validateClassificationAssignmentV2 = (input: unknown): ValidationResult<ClassificationAssignmentV2> => {
+  const checked = validateClassificationAssignment(input);
+  if (!checked.ok) return checked;
+  const assignment = checked.value;
+  if (assignment.economicRole === 'loan_issuance') return failure('invalid_economic_role');
+  if (assignment.economicRole === 'ordinary_expense') return success(assignment);
+  return success(Object.freeze({ economicRole: assignment.economicRole, layer: null }));
+};
+
 /** Structural invariants only. Does NOT approve dataset/role compatibility,
  * prove a manual action occurred, verify owner access or establish source freshness. */
-export const validateClassificationDecision = (input: unknown): ValidationResult<ClassificationDecision> => {
+const validateDecision = <Version extends string, Assignment>(
+  input: unknown, supportsVersion: (value: unknown) => value is Version,
+  validateAssignment: (value: unknown) => ValidationResult<Assignment>,
+): ValidationResult<Decision<Version, Assignment>> => {
   const checked = readRecord(input, [
     'owner', 'dataset', 'operationId', 'taxonomyVersion', 'decisionOrigin',
     'decisionRevision', 'state', 'assignment',
@@ -129,22 +151,31 @@ export const validateClassificationDecision = (input: unknown): ValidationResult
   const record = checked.value;
   const identity = identityFrom(record);
   if (!identity.ok) return identity;
-  if (!isSupportedTaxonomyVersion(record.taxonomyVersion)) return failure('unsupported_taxonomy');
+  if (!supportsVersion(record.taxonomyVersion)) return failure('unsupported_taxonomy');
   if (record.decisionOrigin !== 'manual') return failure('invalid_decision_origin');
   const revision = validateDecisionRevision(record.decisionRevision);
   if (!revision.ok) return revision;
   if (record.state !== 'approved' && record.state !== 'explicit_unclassified' && record.state !== 'cleared')
     return failure('invalid_state');
-  const base: DecisionBase = {
+  const base: DecisionBase<Version> = {
     ...identity.value, taxonomyVersion: record.taxonomyVersion,
     decisionOrigin: 'manual', decisionRevision: revision.value,
   };
   if (record.state === 'approved') {
     if (!Object.hasOwn(record, 'assignment')) return failure('missing_assignment');
-    const assignment = validateClassificationAssignment(record.assignment);
+    const assignment = validateAssignment(record.assignment);
     if (!assignment.ok) return assignment;
     return success(Object.freeze({ ...base, state: 'approved', assignment: assignment.value }));
   }
   if (Object.hasOwn(record, 'assignment')) return failure('unexpected_assignment');
   return success(Object.freeze({ ...base, state: record.state }));
 };
+
+/** Legacy structural contract. V2 is deliberately excluded from runtime consumers. */
+export const validateClassificationDecision = (input: unknown): ValidationResult<ClassificationDecision> =>
+  validateDecision(input, isSupportedTaxonomyVersion, validateClassificationAssignment);
+
+/** Standalone v2 shape validation; no v1 conversion or dataset/role inference. */
+export const validateClassificationDecisionV2 = (input: unknown): ValidationResult<ClassificationDecisionV2> =>
+  validateDecision(input, (value): value is typeof TAXONOMY_VERSION_V2 => value === TAXONOMY_VERSION_V2,
+    validateClassificationAssignmentV2);

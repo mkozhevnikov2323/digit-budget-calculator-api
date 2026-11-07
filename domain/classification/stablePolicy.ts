@@ -1,5 +1,6 @@
 /** Approved D3/D4 contract. Explicit stable policy, never a provisional fallback. */
-import { STABLE_TAXONOMY_VERSION, type ClassificationDecision, type Dataset, type EconomicRole } from '../classification';
+import { STABLE_TAXONOMY_VERSION, validateClassificationDecisionV2,
+  type ClassificationDecisionV2, type ClassificationDecision, type Dataset, type EconomicRole } from '../classification';
 import { POLICY_VERSION, validateCompatibilityPolicy, evaluateClassificationDecision,
   type CompatibilityResult } from './policy';
 
@@ -25,4 +26,15 @@ export const validateStableClassificationDecision = (input: unknown): Compatibil
   if (!checked.ok) return checked;
   // evaluate requires an exact taxonomy match with the explicit stable policy.
   return { ok: true, value: checked.value.decision as StableClassificationDecision };
+};
+
+/** Standalone v2 compatibility contract. Never selected by the current write/read paths.
+ * Remaining roles retain the exact approved v1 dataset matrix. */
+export const validateStableClassificationDecisionV2 = (input: unknown): CompatibilityResult<ClassificationDecisionV2> => {
+  const checked = validateClassificationDecisionV2(input);
+  if (!checked.ok) return checked;
+  const decision = checked.value;
+  if (decision.state === 'approved' && !STABLE_ROLE_DATASETS[decision.assignment.economicRole].includes(decision.dataset))
+    return { ok: false, error: { code: 'incompatible_assignment' } };
+  return checked;
 };
