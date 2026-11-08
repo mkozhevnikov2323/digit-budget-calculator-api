@@ -1,7 +1,7 @@
 /** Disconnected internal service. No ambient connection, route, env, bootstrap or DDL. */
 import { Types, mongo, type Connection } from 'mongoose';
 import { isDeepStrictEqual } from 'node:util';
-import { STABLE_TAXONOMY_VERSION, validateOperationIdentity } from '../domain/classification';
+import { TAXONOMY_VERSION_V2, validateOperationIdentity } from '../domain/classification';
 import { compareSourceFingerprints, type SourceFingerprint } from '../domain/classification/sourceFingerprint';
 import { validateManualCommand, validateVerifiedReview, fingerprintClassificationCommand, readWriteFields,
   type ManualCommand, type VerifiedReview, type WriteValidationCode } from '../domain/classification/writeCommand';
@@ -105,7 +105,10 @@ export const createClassificationWriteService = (connection: Connection, trust: 
     };
     const replay = (r: ClassificationRecord): 'same' | 'different' | 'invalid' | 'other' => {
       if (r.lastMutation.requestId !== c.requestId) return 'other';
-      if (r.lastMutation.commandFingerprint !== commandHash.value.commandFingerprint) return 'different';
+      // Replays preserve the stored taxonomy and original digest; never rewrite v1.
+      const expectedHash = r.taxonomyVersion === TAXONOMY_VERSION_V2 ? commandHash
+        : fingerprintClassificationCommand(owner, c, review, 1, r.taxonomyVersion);
+      if (!expectedHash.ok || r.lastMutation.commandFingerprint !== expectedHash.value.commandFingerprint) return 'different';
       // Verify actual persisted intent too; digest syntax alone is not proof of a replay.
       if (r.decisionRevision !== (c.expectedRevision === null ? 1 : c.expectedRevision + 1)
         || r.state !== c.state || !isDeepStrictEqual(r.assignment, c.assignment) || !matches(r, review)) return 'invalid';
@@ -155,7 +158,7 @@ export const createClassificationWriteService = (connection: Connection, trust: 
       const candidate = {
         owner, dataset: c.dataset, operationId: c.operationId, state: c.state,
         ...(c.state === 'approved' ? { assignment: c.assignment } : {}),
-        taxonomyVersion: STABLE_TAXONOMY_VERSION, decisionOrigin: 'manual',
+        taxonomyVersion: TAXONOMY_VERSION_V2, decisionOrigin: 'manual',
         decisionRevision: previous ? previous.decisionRevision + 1 : 1,
         ...reviewFingerprint(review), sourceObservedAt: new Date(),
         createdAt: previous?.createdAt ?? now, updatedAt: now,

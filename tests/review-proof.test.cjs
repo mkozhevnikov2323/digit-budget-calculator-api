@@ -100,7 +100,7 @@ describe('experimental isolated AEAD review proof (fictional material, no databa
     const plain = independentlyDecrypt(first.reviewProof), other = independentlyDecrypt(second.reviewProof);
     assert.equal(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(plain.proofId), true);
     assert.equal(plain.proofId !== other.proofId, true);
-    equalPrivate({ ...plain, proofId: fixture.claims.proofId }, fixture.claims);
+    equalPrivate({ ...plain, proofId: fixture.claims.proofId }, { ...fixture.claims, taxonomyVersion: 'financial-classification-v2' });
     for (const marker of [fixture.claims.actor, fixture.claims.sourceFingerprint, fixture.claims.credentialBinding])
       assert.equal(first.reviewProof.includes(marker), false, 'Opaque proof leaked a private marker');
   });
@@ -110,7 +110,7 @@ describe('experimental isolated AEAD review proof (fictional material, no databa
   });
   it('supports stable income and non-spending null-layer assignments', () => {
     for (const [dataset, assignment] of [['incomes', { economicRole: 'ordinary_income', layer: null }],
-      ['expenses', { economicRole: 'loan_issuance', layer: null }]]) {
+      ['expenses', { economicRole: 'internal_transfer', layer: null }]]) {
       const h = harness({ observation: review({ dataset }) }), c = command({ dataset, assignment });
       equalPrivate(valid(h.verify(valid(h.issue(c)).reviewProof, c)), review({ dataset }));
     }
@@ -153,7 +153,7 @@ describe('experimental isolated AEAD review proof (fictional material, no databa
   for (const [name, c] of [
     ['operation', command({ operationId: '2'.repeat(24) })],
     ['dataset', command({ dataset: 'incomes', assignment: { economicRole: 'ordinary_income', layer: null } })],
-    ['role', command({ assignment: { economicRole: 'loan_issuance', layer: null } })],
+    ['role', command({ assignment: { economicRole: 'internal_transfer', layer: null } })],
     ['layer', command({ assignment: { economicRole: 'ordinary_expense', layer: 'irregular' } })],
     ['state', absent('cleared')], ['revision', command({ expectedRevision: 1 })],
     ['request ID', command({ requestId: '87654321-4321-4321-8321-cba987654321' })],

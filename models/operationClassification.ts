@@ -1,6 +1,6 @@
 /** Explicit model factory only. No default connection, collection creation or index IO. */
 import { Schema, type Connection } from 'mongoose';
-import { ECONOMIC_ROLES, FINANCIAL_LAYERS, STABLE_TAXONOMY_VERSION } from '../domain/classification';
+import { ECONOMIC_ROLES, FINANCIAL_LAYERS, STABLE_TAXONOMY_VERSION, TAXONOMY_VERSION_V2 } from '../domain/classification';
 import { classificationFromBson, type BsonClassification } from '../persistence/classification';
 import { CLASSIFICATION_MANIFEST } from '../persistence/classificationManifest';
 
@@ -21,7 +21,7 @@ const schema = new Schema<BsonClassification>({
   operationId: { type: Schema.Types.ObjectId, cast: false, required: true, immutable: true },
   state: { type: String, cast: false, required: true, enum: ['approved', 'explicit_unclassified', 'cleared'] },
   assignment: { type: assignment, default: undefined },
-  taxonomyVersion: { type: String, cast: false, required: true, enum: [STABLE_TAXONOMY_VERSION] },
+  taxonomyVersion: { type: String, cast: false, required: true, enum: [STABLE_TAXONOMY_VERSION, TAXONOMY_VERSION_V2] },
   decisionOrigin: { type: String, cast: false, required: true, enum: ['manual'] },
   decisionRevision: { type: Number, cast: false, required: true, min: 1, max: Number.MAX_SAFE_INTEGER,
     validate: Number.isSafeInteger },

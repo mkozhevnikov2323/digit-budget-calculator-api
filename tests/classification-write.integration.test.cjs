@@ -4,6 +4,7 @@ const path=require('node:path');
 const {isDeepStrictEqual}=require('node:util');
 const jwt=require('jsonwebtoken');
 const {createHarness,testConfiguration}=require('./helpers/mongodb-integration.cjs');
+const {fingerprintClassificationCommand}=require('../dist/domain/classification/writeCommand.js');
 const {syntheticWriteTrust}=require('./helpers/classification-write.cjs');
 const {input,omit}=require('./helpers/classification-fixtures.cjs');
 const a='aaaaaaaaaaaaaaaaaaaaaaaa',b='bbbbbbbbbbbbbbbbbbbbbbbb';
@@ -104,7 +105,7 @@ describe('real MongoDB disconnected manual classification write service',{concur
   for(const state of ['approved','explicit_unclassified','cleared'])it('creates initial explicit manual '+state,async()=>{
     const c=state==='approved'?command():nonapproved(state);expectSuccess(await invoke(c,await evidence()),'created',state);
     const raw=await stored();assert.equal(fromBson(raw).ok,true);assert.equal(raw.decisionRevision,1);
-    assert.equal(Object.hasOwn(raw,'assignment'),state==='approved');assert.equal(raw.taxonomyVersion,'financial-classification-v1');
+    assert.equal(Object.hasOwn(raw,'assignment'),state==='approved');assert.equal(raw.taxonomyVersion,'financial-classification-v2');
     assert.equal(raw.decisionOrigin,'manual');assert.equal(Object.hasOwn(raw,'__v'),false);
   });
   it('creates approved income with explicit null layer',async()=>{
@@ -112,10 +113,13 @@ describe('real MongoDB disconnected manual classification write service',{concur
     expectSuccess(await invoke(c,await evidence(a,'incomes')));assert.equal((await stored(a,'incomes')).assignment.layer,null);
   });
   it('updates layer using CAS and preserves immutable identity/createdAt',async()=>{
-    const proof=await evidence();await invoke(command(),proof);const before=await stored();
+    const observation=await observed(),proof=trust.review(contexts[a],observation);
+    const hash=fingerprintClassificationCommand(a,command(),{kind:'verified_manual_review',owner:a,...observation},1,'financial-classification-v1');
+    await seedDecision({lastMutation:{requestId:requestId(1),...hash.value}});const before=await stored();
+    expectSuccess(await invoke(command(),proof),'replayed');assert.equal(isDeepStrictEqual(await stored(),before),true);
     expectSuccess(await invoke(command({expectedRevision:1,requestId:requestId(2),assignment:{economicRole:'ordinary_expense',layer:'irregular'}}),proof),'updated','approved',2);
     const after=await stored();for(const key of ['_id','owner','operationId','dataset','createdAt'])assert.equal(isDeepStrictEqual(after[key],before[key]),true);
-    assert.equal(after.assignment.layer,'irregular');assert.equal(after.updatedAt.getTime()>=before.updatedAt.getTime(),true);
+    assert.equal(after.taxonomyVersion,'financial-classification-v2');assert.equal(after.assignment.layer,'irregular');assert.equal(after.updatedAt.getTime()>=before.updatedAt.getTime(),true);
     assert.equal(after.lastMutation.requestId,requestId(2));assert.equal(after.lastMutation.commandFingerprintVersion,1);
   });
   it('approved -> cleared -> approved keeps revision continuity and removes assignment',async()=>{
@@ -285,7 +289,7 @@ describe('real MongoDB disconnected manual classification write service',{concur
   for(const [label,change]of [['date',{date:'2025-01-15'}],['required string',{title:null}],['comment',{comment:{private:'fictional'}}]])
     it('rejects malformed source '+label,async()=>{const proof=await evidence();await edit(change);await reject(command(),proof,'malformed_source');});
   for(const [label,change,code]of [
-    ['taxonomy',{taxonomyVersion:'financial-classification-v2'},'unsupported_taxonomy'],
+    ['taxonomy',{taxonomyVersion:'financial-classification-v3'},'unsupported_taxonomy'],
     ['provisional taxonomy',{taxonomyVersion:'financial-layers-v1-provisional'},'unsupported_taxonomy'],
     ['fingerprint version',{sourceFingerprintVersion:2},'unsupported_fingerprint_version'],
     ['assignment',{assignment:{economicRole:'ordinary_expense',layer:'invalid'}},'blocked_decision'],

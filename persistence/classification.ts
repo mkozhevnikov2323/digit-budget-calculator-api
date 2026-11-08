@@ -1,7 +1,7 @@
 /** Strict internal persistence boundary. Owner shape is never authorization evidence. */
 import { Types, mongo } from 'mongoose';
-import { STABLE_TAXONOMY_VERSION } from '../domain/classification';
-import { validateStableClassificationDecision, type StableClassificationDecision } from '../domain/classification/stablePolicy';
+import { STABLE_TAXONOMY_VERSION, TAXONOMY_VERSION_V2, type ClassificationDecisionV2 } from '../domain/classification';
+import { validateStableClassificationDecision, validateStableClassificationDecisionV2, type StableClassificationDecision } from '../domain/classification/stablePolicy';
 import { validateSourceFingerprint } from '../domain/classification/sourceFingerprint';
 
 export type PersistenceErrorCode = 'invalid_record' | 'unexpected_field' | 'invalid_identity'
@@ -10,7 +10,7 @@ export type PersistenceResult<T> =
   | Readonly<{ ok: true; value: T }>
   | Readonly<{ ok: false; error: Readonly<{ code: PersistenceErrorCode }> }>;
 export type LastMutation = Readonly<{ requestId: string; commandFingerprint: string; commandFingerprintVersion: 1 }>;
-export type ClassificationRecord = StableClassificationDecision & Readonly<{
+export type ClassificationRecord = (StableClassificationDecision | ClassificationDecisionV2) & Readonly<{
   _id: string; sourceFingerprint: string; sourceFingerprintVersion: 1;
   sourceObservedAt: Date; createdAt: Date; updatedAt: Date; lastMutation: LastMutation;
 }>;
@@ -56,9 +56,10 @@ export const validateClassificationRecord = (input: unknown): PersistenceResult<
   if (!read.ok) return read;
   const r = read.value;
   if (!id(r._id) || !id(r.owner) || !id(r.operationId)) return fail('invalid_identity');
-  if (r.taxonomyVersion !== STABLE_TAXONOMY_VERSION) return fail('unsupported_taxonomy');
+  if (r.taxonomyVersion !== STABLE_TAXONOMY_VERSION && r.taxonomyVersion !== TAXONOMY_VERSION_V2) return fail('unsupported_taxonomy');
   const projection = Object.fromEntries(decisionFields.filter(key => Object.hasOwn(r, key)).map(key => [key, r[key]]));
-  const decision = validateStableClassificationDecision(projection);
+  const decision = r.taxonomyVersion === TAXONOMY_VERSION_V2
+    ? validateStableClassificationDecisionV2(projection) : validateStableClassificationDecision(projection);
   if (!decision.ok) return fail('invalid_decision');
   const fingerprint = validateSourceFingerprint({ sourceFingerprint: r.sourceFingerprint,
     sourceFingerprintVersion: r.sourceFingerprintVersion });

@@ -1,5 +1,5 @@
 /** Data only. Importing this manifest never connects or installs anything. */
-import { FINANCIAL_LAYERS, STABLE_TAXONOMY_VERSION, type EconomicRole } from '../domain/classification';
+import { FINANCIAL_LAYERS, STABLE_TAXONOMY_VERSION, TAXONOMY_VERSION_V2, type EconomicRole } from '../domain/classification';
 import { STABLE_ROLE_DATASETS } from '../domain/classification/stablePolicy';
 
 const numeric = ['int', 'long', 'double'];
@@ -9,6 +9,8 @@ const digest = { bsonType: 'string', minLength: 64, maxLength: 64, pattern: '^[a
 const approvedBranches = (Object.keys(STABLE_ROLE_DATASETS) as EconomicRole[]).map(role => ({
   required: ['assignment'],
   properties: {
+    taxonomyVersion: { enum: role === 'loan_issuance'
+      ? [STABLE_TAXONOMY_VERSION] : [STABLE_TAXONOMY_VERSION, TAXONOMY_VERSION_V2] },
     state: { enum: ['approved'] }, dataset: { enum: [...STABLE_ROLE_DATASETS[role]] },
     assignment: { properties: {
       economicRole: { enum: [role] }, layer: role === 'ordinary_expense'
@@ -20,7 +22,7 @@ const rootProperties = {
   _id: { bsonType: 'objectId' }, owner: { bsonType: 'objectId' }, operationId: { bsonType: 'objectId' },
   dataset: { bsonType: 'string', enum: ['expenses', 'incomes'] },
   state: { bsonType: 'string', enum: ['approved', 'explicit_unclassified', 'cleared'] },
-  taxonomyVersion: { bsonType: 'string', enum: [STABLE_TAXONOMY_VERSION] },
+  taxonomyVersion: { bsonType: 'string', enum: [STABLE_TAXONOMY_VERSION, TAXONOMY_VERSION_V2] },
   decisionOrigin: { bsonType: 'string', enum: ['manual'] }, decisionRevision: integer,
   sourceFingerprint: digest, sourceFingerprintVersion: version,
   sourceObservedAt: { bsonType: 'date' }, createdAt: { bsonType: 'date' }, updatedAt: { bsonType: 'date' },

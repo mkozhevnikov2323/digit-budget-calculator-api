@@ -29,7 +29,7 @@ describe(
       requestId: randomUUID(),
       expectedRevision: null,
       state: 'approved',
-      assignment: { economicRole: 'ordinary_expense', layer: 'everyday' },
+      assignment: { economicRole: 'ordinary_expense', layer: 'emergency' },
       expectedFacts: facts,
       ...extra,
     });
@@ -108,9 +108,10 @@ describe(
       assert.equal(r.body.decision.status, 'approved');
       assert.deepEqual(r.body.decision.confirmed, {
         economicRole: 'ordinary_expense',
-        layer: 'everyday',
+        layer: 'emergency',
       });
       assert.equal(r.body.decision.decisionRevision, 1);
+      assert.equal((await db.collection(manifest.collectionName).findOne({owner:oid(owner)})).taxonomyVersion,'financial-classification-v2');
       r = await put(
         command({
           expectedRevision: 1,
@@ -137,6 +138,7 @@ describe(
     });
     it('rejects foreign ownership, mismatched facts, cleared and extra assignment without writes', async () => {
       assert.equal((await put(command(), foreign)).status, 404);
+      assert.equal((await put(command({assignment:{economicRole:'loan_issuance',layer:null}}))).status,400);
       assert.equal(
         (
           await put(

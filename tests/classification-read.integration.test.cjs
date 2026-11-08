@@ -97,7 +97,7 @@ describe('real MongoDB owner-scoped classification read API',{concurrency:false,
   });
   it('returns unreviewed only after exact collection installation',async()=>expectState(await get(),'unreviewed',null,null));
   for(const dataset of ['expenses','incomes'])it('returns fresh approved '+dataset+' with minimal confirmed assignment',async()=>{
-    await decision({},dataset);const res=await get(a,dataset);expectState(res,'approved');assert.equal(res.body.dataset,dataset);
+    await decision({taxonomyVersion:dataset==='expenses'?'financial-classification-v2':'financial-classification-v1'},dataset);const res=await get(a,dataset);expectState(res,'approved');assert.equal(res.body.dataset,dataset);
     assert.deepEqual(res.body.confirmed,dataset==='expenses'?{economicRole:'ordinary_expense',layer:'everyday'}:{economicRole:'ordinary_income',layer:null});
   });
   for(const state of ['explicit_unclassified','cleared']){
@@ -119,7 +119,7 @@ describe('real MongoDB owner-scoped classification read API',{concurrency:false,
     await editSource({comment:''});expectState(await get(),'stale','approved');
   });
   for(const [label,change]of [
-    ['unsupported taxonomy',{taxonomyVersion:'financial-classification-v2'}],['unsupported fingerprint',{sourceFingerprintVersion:2}],
+    ['unsupported taxonomy',{taxonomyVersion:'financial-classification-v3'}],['unsupported fingerprint',{sourceFingerprintVersion:2}],
     ['malformed assignment',{assignment:{economicRole:'ordinary_expense',layer:'invalid'}}],['invalid revision',{decisionRevision:1.5}],
     ['private unexpected field',{privateField:'Fictional private exception marker'}],['incompatible role',{assignment:{economicRole:'ordinary_income',layer:null}}],
   ])it('blocks '+label+' without unsafe partial metadata',async()=>{

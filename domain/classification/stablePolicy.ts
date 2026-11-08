@@ -28,7 +28,7 @@ export const validateStableClassificationDecision = (input: unknown): Compatibil
   return { ok: true, value: checked.value.decision as StableClassificationDecision };
 };
 
-/** Standalone v2 compatibility contract. Never selected by the current write/read paths.
+/** Current v2 compatibility contract for new decisions.
  * Remaining roles retain the exact approved v1 dataset matrix. */
 export const validateStableClassificationDecisionV2 = (input: unknown): CompatibilityResult<ClassificationDecisionV2> => {
   const checked = validateClassificationDecisionV2(input);
