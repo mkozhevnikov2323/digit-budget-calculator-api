@@ -36,7 +36,7 @@ const schema = new Schema<ClassificationRule>({
   createdAt: { type: Date, required: true, default: () => new Date(), immutable: true, cast: false, validate: validDate },
   updatedAt: { type: Date, required: true, default: () => new Date(), cast: false, validate: validDate },
 }, { collection: CLASSIFICATION_RULE_COLLECTION, strict: 'throw', strictQuery: 'throw',
-  timestamps: true, versionKey: false, autoCreate: false, autoIndex: false, minimize: false });
+  timestamps: true, versionKey: false, bufferCommands: false, autoCreate: false, autoIndex: false, minimize: false });
 
 // Missing title has the null index key; explicit null/empty title is invalid.
 // Disabled rules still occupy their match key. No sparse index omits general rules.
