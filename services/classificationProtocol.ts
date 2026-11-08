@@ -155,7 +155,7 @@ export const installClassificationProtocol = (app: Application, connection: Conn
       const stored = parsed?.ok ? parsed.value : null;
       if (!await classificationReadiness(db) || !await ready(mode)) { send(503, 'unavailable'); return; }
       if (mode === 'reconcile' && recovered?.ok) {
-        const review = recovered.value.review, hash = fingerprintClassificationCommand(owner, command, review, 1, stored?.taxonomyVersion);
+        const review = recovered.value.review, hash = fingerprintClassificationCommand(owner, command, review, 1, stored?.taxonomyVersion ?? TAXONOMY_VERSION_V2);
         if (!hash.ok) { send(400, 'invalid_request'); return; }
         let receipt = null;
         if (stored?.lastMutation.requestId === command.requestId) {
