@@ -1,5 +1,11 @@
 # Single-intent classification decision v1
 
+The wire version stays v1. New decisions now use taxonomy
+`financial-classification-v2`; v1 stored decisions remain readable without
+conversion. `loan_issuance` is rejected in commands; use an explicit
+`ordinary_expense/emergency` assignment instead. See the
+[v2 rollout instructions](classification-v2-rollout.md).
+
 `PUT /classifications/:dataset/:operationId/decision` is additive to the old C and
 P11 routes. It uses the existing JWT/account/owner checks and
 `CLASSIFICATION_C_WRITE_ENABLED=1` gate. No new environment settings, DDL, schema,

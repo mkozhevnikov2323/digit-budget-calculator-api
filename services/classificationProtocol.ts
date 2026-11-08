@@ -7,7 +7,7 @@ import type { Connection } from 'mongoose';
 import { createReviewProofFoundation, type TrustedProofContext, type TrustedIssuance } from '../domain/classification/reviewProof';
 import { readWriteFields, validateManualCommand, fingerprintClassificationCommand, type ManualCommand,
   type VerifiedReview } from '../domain/classification/writeCommand';
-import { validateOperationIdentity, STABLE_TAXONOMY_VERSION } from '../domain/classification';
+import { validateOperationIdentity, TAXONOMY_VERSION_V2 } from '../domain/classification';
 import { classificationFromBson } from '../persistence/classification';
 import { classificationReadiness } from '../persistence/classificationReadiness';
 import { authenticatedClassificationOwner } from './classificationPrincipal';
@@ -155,7 +155,7 @@ export const installClassificationProtocol = (app: Application, connection: Conn
       const stored = parsed?.ok ? parsed.value : null;
       if (!await classificationReadiness(db) || !await ready(mode)) { send(503, 'unavailable'); return; }
       if (mode === 'reconcile' && recovered?.ok) {
-        const review = recovered.value.review, hash = fingerprintClassificationCommand(owner, command, review, 1);
+        const review = recovered.value.review, hash = fingerprintClassificationCommand(owner, command, review, 1, stored?.taxonomyVersion);
         if (!hash.ok) { send(400, 'invalid_request'); return; }
         let receipt = null;
         if (stored?.lastMutation.requestId === command.requestId) {
@@ -181,7 +181,7 @@ export const installClassificationProtocol = (app: Application, connection: Conn
       const { date: _date, ...facts } = observation.value.facts;
       const intent = publicIntent(command);
       const response = { version: 'classification-review-v1', dataset: command.dataset, operationId: command.operationId,
-        taxonomyVersion: STABLE_TAXONOMY_VERSION, browserReviewContext, currentDecision: { storedState: stored?.state ?? null,
+        taxonomyVersion: TAXONOMY_VERSION_V2, browserReviewContext, currentDecision: { storedState: stored?.state ?? null,
           decisionRevision: stored?.decisionRevision ?? null }, intent, facts, ...issued.value, consistency: 'observed_only_non_atomic' };
       if (Buffer.byteLength(JSON.stringify(response), 'utf8') > 65536) { send(413, 'review_too_large'); return; }
       res.json(response);

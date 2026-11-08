@@ -62,7 +62,9 @@ describe('manifest inspection fails closed (no database)',()=>{
     assert.equal(await inspect([],[]),false);assert.equal(await inspect([metadata()],[]),false);
   });
   for(const [label,change] of [
-    ['validator',c=>{c.options.validator={};}],['warn mode',c=>{c.options.validationAction='warn';}],
+    ['validator',c=>{c.options.validator={};}],
+    ['v1-only validator',c=>{const schema=c.options.validator.$and[0].$jsonSchema;schema.properties.taxonomyVersion.enum=['financial-classification-v1'];for(const branch of schema.oneOf)delete branch.properties.taxonomyVersion;}],
+    ['warn mode',c=>{c.options.validationAction='warn';}],
     ['moderate validation',c=>{c.options.validationLevel='moderate';}],['view',c=>{c.type='view';}],
     ['capped collection',c=>{c.options.capped=true;}],['collation',c=>{c.options.collation={locale:'en'};}],
   ]) it('rejects '+label,async()=>{const c=metadata();change(c);assert.equal(await inspect([c],[index()]),false);});

@@ -274,6 +274,7 @@ export const createClassificationC = (
             c.command,
             c.review,
             1,
+            stored.ok ? stored.value.taxonomyVersion : undefined,
           );
         const matched =
           stored.ok &&

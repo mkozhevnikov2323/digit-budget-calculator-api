@@ -14,7 +14,7 @@ const code=(result,expected)=>{assert.equal(result.ok,false);assert.equal(result
 
 describe('strict internal manual command boundary (pure)',()=>{
   it('accepts all manual states with explicit initial or positive expected revisions',()=>{
-    for(const x of [command(),command({expectedRevision:1}),absent('cleared'),absent('explicit_unclassified',{expectedRevision:9})])
+    for(const x of [command(),command({assignment:{economicRole:'ordinary_expense',layer:'emergency'}}),command({expectedRevision:1}),absent('cleared'),absent('explicit_unclassified',{expectedRevision:9})])
       assert.equal(validateManualCommand(x).ok,true);
   });
   for(const [label,change] of [
@@ -26,6 +26,7 @@ describe('strict internal manual command boundary (pure)',()=>{
     ...[0,-1,1.5,'1',NaN,Infinity,Number.MAX_SAFE_INTEGER+1].map((value,i)=>['invalid revision '+i,x=>({...x,expectedRevision:value})]),
     ['unknown state',x=>({...x,state:'stale'})],['missing assignment',x=>{delete x.assignment;return x;}],
     ['null assignment',x=>({...x,assignment:null})],['unknown layer',x=>({...x,assignment:{economicRole:'ordinary_expense',layer:'invalid'}})],
+    ['retired loan role',x=>({...x,assignment:{economicRole:'loan_issuance',layer:null}})],
     ['wrong role/dataset',x=>({...x,assignment:{economicRole:'ordinary_income',layer:null}})],
     ['cleared with assignment',x=>({...x,state:'cleared'})],['unclassified with assignment',x=>({...x,state:'explicit_unclassified'})],
     ['nested unknown field',x=>({...x,assignment:{...x.assignment,extra:1}})],
@@ -75,44 +76,52 @@ describe('RFC command SHA-256 v1 (independent Python hashlib vectors)',()=>{
     "state": "approved",
     "expectedRevision": null,
     "sourceFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "hash": "43545a04c2ea08897a1da1d1680bddcfa87e5f1a37cbdf4b893aaa5d357d39e2"
+    "hash": "43545a04c2ea08897a1da1d1680bddcfa87e5f1a37cbdf4b893aaa5d357d39e2",
+    "hashV2": "63a9f212933bcabb075718dafa8c59ebd3b8146380ac6629f1dddec24599da7d"
   },
   {
     "dataset": "expenses",
     "state": "approved",
     "expectedRevision": 1,
     "sourceFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "hash": "ae15a20e00bc4369c2dbdab657dfc3634b63af38e247275ac639cb91ef9b3658"
+    "hash": "ae15a20e00bc4369c2dbdab657dfc3634b63af38e247275ac639cb91ef9b3658",
+    "hashV2": "46ae756fda8600442b4079c5bf8f1086069d69bdbbc36d8178e311c9a3542a2a"
   },
   {
     "dataset": "incomes",
     "state": "approved",
     "expectedRevision": 7,
     "sourceFingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-    "hash": "f95f10fb102c3fe40813af45a294d8e328c65e2125ab59e58ed15d0b1031ff86"
+    "hash": "f95f10fb102c3fe40813af45a294d8e328c65e2125ab59e58ed15d0b1031ff86",
+    "hashV2": "7123c825ca5952806a964af73445a6d2958ec4fadba98455a6811515c783eb82"
   },
   {
     "dataset": "expenses",
     "state": "explicit_unclassified",
     "expectedRevision": null,
     "sourceFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "hash": "83b375a10032d8aebb26b43dbac49945adebb2c87ba9910a970a5df36eb47d74"
+    "hash": "83b375a10032d8aebb26b43dbac49945adebb2c87ba9910a970a5df36eb47d74",
+    "hashV2": "aa6bacfac16b42551a324dd4d96d3d4317566cf625050142354645f9030da286"
   },
   {
     "dataset": "expenses",
     "state": "cleared",
     "expectedRevision": 9007199254740990,
     "sourceFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "hash": "f5c3d5b14eea24995fce47f3a127c3fd4c1471a4fa5afb908999b24f35638f74"
+    "hash": "f5c3d5b14eea24995fce47f3a127c3fd4c1471a4fa5afb908999b24f35638f74",
+    "hashV2": "e86686004f318a278728b2675b0f103ee38df88b43238434711f6526f1379f96"
   }
 ];
   for(const [i,v]of vectors.entries())it('matches fixed vector '+i,()=>{
     const x=v.state==='approved'?command({dataset:v.dataset,state:v.state,expectedRevision:v.expectedRevision,
       assignment:v.dataset==='expenses'?{economicRole:'ordinary_expense',layer:i===1?'irregular':'everyday'}:{economicRole:'ordinary_income',layer:null}})
       :absent(v.state,{expectedRevision:v.expectedRevision});
-    const result=fingerprintClassificationCommand(a,x,review({dataset:v.dataset,sourceFingerprint:v.sourceFingerprint}),1);
-    assert.equal(result.ok,true);assert.equal(result.value.commandFingerprint===v.hash,true,'Independent fixed vector mismatch');
-    assert.equal(result.value.commandFingerprintVersion,1);
+    for(const [taxonomy,hash] of [['financial-classification-v1',v.hash],['financial-classification-v2',v.hashV2]]){
+      const result=fingerprintClassificationCommand(a,x,review({dataset:v.dataset,sourceFingerprint:v.sourceFingerprint}),1,taxonomy);
+      assert.equal(result.ok,true);assert.equal(result.value.commandFingerprint===hash,true,'Independent fixed vector mismatch');
+      assert.equal(result.value.commandFingerprintVersion,1);
+      if(taxonomy==='financial-classification-v2')assert.deepEqual(fingerprintClassificationCommand(a,x,review({dataset:v.dataset,sourceFingerprint:v.sourceFingerprint}),1),result);
+    }
   });
   it('is deterministic, order independent and canonicalizes identity aliases',()=>{
     const x=command(),r=review(),first=fingerprintClassificationCommand(a,x,r,1);
@@ -178,13 +187,44 @@ describe('disconnected write service trust boundary (database forbidden)',()=>{
   it('fails closed on a disconnected explicit connection without connecting or consulting env',async()=>{
     const h=setup();code(await h.service.execute(h.context,command(),h.evidence),'infrastructure_unavailable');h.noDB();
   });
-  it('passes a validated immutable command to the trusted manual-review verifier',async()=>{
-    let checked;
-    const service=createClassificationWriteService({readyState:0},{resolveAuthenticatedOwner:()=>({owner:a}),
-      resolveVerifiedReview(context,evidence,c){checked=c;return review();}});
-    code(await service.execute({},command(),{}),'infrastructure_unavailable');
-    assert.equal(Object.isFrozen(checked),true);assert.equal(Object.isFrozen(checked.assignment),true);
-    assert.equal(checked.kind,'manual_classification');
+  it('requires verified manual intent, writes v2, preserves v1 replay and fails conflicts without source writes',async()=>{
+    const {Types,mongo}=require('mongoose');
+    const {CLASSIFICATION_MANIFEST:manifest}=require('../dist/persistence/classificationManifest.js');
+    const {sourceFingerprintFromBson}=require('../dist/persistence/classificationSource.js');
+    const source={_id:new Types.ObjectId(op),owner:new Types.ObjectId(a),amount:12.34,date:new Date(1736942400000),category:'Выдача займа',title:'Synthetic',recipient:'Synthetic'};
+    const before=mongo.BSON.serialize(source),observed=sourceFingerprintFromBson(source,{owner:a,dataset:'expenses',operationId:op}).value;
+    const trust=syntheticWriteTrust(),context=trust.owner(a),evidence=trust.review(context,review(observed));
+    let stored=null,writes=0,checked;
+    const records={
+      findOne:async()=>stored,
+      listIndexes:()=>({toArray:async()=>[{key:manifest.index.key,...manifest.index.options}]}),
+      insertOne:async(doc)=>{writes++;stored=doc;return {acknowledged:true};},
+    };
+    const db={
+      listCollections:()=>({toArray:async()=>[{type:'collection',options:manifest.options}]}),
+      collection:name=>{assert.ok([manifest.collectionName,'expenses'].includes(name));return name===manifest.collectionName?records:{findOne:async()=>source};},
+    };
+    const service=createClassificationWriteService({readyState:1,db},{...trust.boundary,
+      resolveVerifiedReview(ctx,proof,c){checked=c;return trust.boundary.resolveVerifiedReview(ctx,proof,c);}});
+    const c=command({assignment:{economicRole:'ordinary_expense',layer:'emergency'}});
+    code(await service.execute(context,c,undefined),'invalid_review');
+    code(await service.execute(context,command({assignment:{economicRole:'loan_issuance',layer:null}}),evidence),'invalid_command');
+    assert.equal(writes,0);
+    const result=await service.execute(context,c,evidence);
+    assert.equal(result.ok,true);assert.equal(result.value.outcome,'created');assert.equal(writes,1);
+    assert.equal(Object.isFrozen(checked),true);assert.equal(Object.isFrozen(checked.assignment),true);assert.equal(checked.kind,'manual_classification');
+    assert.equal(stored.taxonomyVersion,'financial-classification-v2');assert.deepEqual(stored.assignment,c.assignment);
+    assert.equal((await service.execute(context,c,evidence)).value.outcome,'replayed');assert.equal(writes,1);
+    const v2Bytes=mongo.BSON.serialize(stored);
+    code(await service.execute(context,command({requestId:'87654321-4321-4321-8321-cba987654321'}),evidence),'revision_conflict');
+    assert.equal(mongo.BSON.serialize(stored).equals(v2Bytes),true);assert.equal(writes,1);
+    // Literal legacy taxonomy and original canonical hash recognize an existing receipt only.
+    stored={...stored,taxonomyVersion:'financial-classification-v1',lastMutation:{requestId:c.requestId,
+      ...fingerprintClassificationCommand(a,c,review(observed),1,'financial-classification-v1').value}};
+    const legacyBytes=mongo.BSON.serialize(stored);
+    assert.equal((await service.execute(context,c,evidence)).value.outcome,'replayed');assert.equal(writes,1);
+    assert.equal(mongo.BSON.serialize(stored).equals(legacyBytes),true);
+    assert.equal(mongo.BSON.serialize(source).equals(before),true);
   });
   it('sanitizes unexpected connection/driver-boundary exceptions',async()=>{
     const service=createClassificationWriteService({readyState:1,get db(){throw new Error('Fictional private password');}},

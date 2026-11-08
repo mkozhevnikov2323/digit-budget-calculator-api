@@ -39,19 +39,26 @@ describe('stable classification and strict persistence boundary (no database)', 
     }
   }
   it('prepares server-generated IDs and round-trips exact stable metadata through BSON', () => {
-    const source = input(), before = structuredClone(source);
-    const a = prepared(source), b = prepared(source);
-    assert.notEqual(a._id.toHexString(), b._id.toHexString());
-    assert.equal(isDeepStrictEqual(source, before), true);
-    const parsed = fromBson(mongoose.mongo.BSON.deserialize(mongoose.mongo.BSON.serialize(a)));
-    assert.equal(parsed.ok, true);
-    assert.equal(parsed.value.owner, source.owner);
-    assert.equal(parsed.value.taxonomyVersion, stable);
-    assert.equal(parsed.value.createdAt.getTime(), source.createdAt.getTime());
-    assert.equal(Object.hasOwn(parsed.value, '__v'), false);
-    source.createdAt.setTime(0); source.lastMutation.requestId = 'changed';
-    assert.notEqual(parsed.value.createdAt.getTime(), 0);
-    assert.equal(parsed.value.lastMutation.requestId === 'changed', false);
+    for (const taxonomyVersion of [stable, 'financial-classification-v2']) {
+      const source = input({taxonomyVersion}), before = structuredClone(source);
+      const a = prepared(source), b = prepared(source);
+      assert.notEqual(a._id.toHexString(), b._id.toHexString());
+      assert.equal(isDeepStrictEqual(source, before), true);
+      const parsed = fromBson(mongoose.mongo.BSON.deserialize(mongoose.mongo.BSON.serialize(a)));
+      assert.equal(parsed.ok, true);
+      assert.equal(parsed.value.owner, source.owner);
+      assert.equal(parsed.value.taxonomyVersion, taxonomyVersion);
+      const { effectiveClassification } = require('../dist/services/classificationObservation.js');
+      assert.equal(effectiveClassification(a, source.owner, source.dataset, source.operationId, source).status, 'approved');
+      assert.equal(parsed.value.createdAt.getTime(), source.createdAt.getTime());
+      assert.equal(Object.hasOwn(parsed.value, '__v'), false);
+      source.createdAt.setTime(0); source.lastMutation.requestId = 'changed';
+      assert.notEqual(parsed.value.createdAt.getTime(), 0);
+      assert.equal(parsed.value.lastMutation.requestId === 'changed', false);
+    }
+    const legacyLoan = input({assignment:{economicRole:'loan_issuance',layer:null}});
+    assert.deepEqual(fromBson(prepared(legacyLoan)).value.assignment, legacyLoan.assignment);
+    assert.equal(prepare({...legacyLoan,taxonomyVersion:'financial-classification-v2'}).ok,false);
   });
   for (const [name, change] of invalidCases) {
     it(`rejects before Mongoose coercion: ${name}`, () => {
@@ -100,6 +107,11 @@ describe('stable classification and strict persistence boundary (no database)', 
     assert.deepEqual(manifest.index.options, { name:'ux_owner_dataset_operation', unique:true, sparse:false, collation:{locale:'simple'} });
     assert.equal(manifest.options.validationLevel,'strict'); assert.equal(manifest.options.validationAction,'error');
     assert.equal(Object.isFrozen(manifest.options.validator),true);
+    const schema=manifest.options.validator.$and[0].$jsonSchema;
+    assert.deepEqual(schema.properties.taxonomyVersion.enum,[stable,'financial-classification-v2']);
+    for(const branch of schema.oneOf.filter(b=>b.required?.includes('assignment'))){
+      assert.deepEqual(branch.properties.taxonomyVersion.enum,branch.properties.assignment.properties.economicRole.enum[0]==='loan_issuance'?[stable]:[stable,'financial-classification-v2']);
+    }
   });
   it('imports/compiles model without connection, index or collection IO', async () => {
     const forbidden = () => { throw new Error('Unexpected model import IO'); };
@@ -111,6 +123,9 @@ describe('stable classification and strict persistence boundary (no database)', 
       assert.equal(Model.schema.options.autoIndex,false); assert.equal(Model.schema.options.autoCreate,false);
       assert.equal(Model.schema.options.versionKey,false);
       await new Model(prepared()).validate();
+      await new Model(prepared(input({taxonomyVersion:'financial-classification-v2',assignment:{economicRole:'ordinary_expense',layer:'emergency'}}))).validate();
+      await new Model(prepared(input({assignment:{economicRole:'loan_issuance',layer:null}}))).validate();
+      await assert.rejects(new Model({...prepared(input({assignment:{economicRole:'loan_issuance',layer:null}})),taxonomyVersion:'financial-classification-v2'}).validate(),()=>true);
       for (const value of [prepared(input({ decisionRevision: 2 })), prepared(omit(input({state:'cleared'}),'assignment'))])
         await new Model(value).validate();
       await assert.rejects(new Model({ ...prepared(), decisionRevision:'1' }).validate(), () => true);

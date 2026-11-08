@@ -1,5 +1,10 @@
 # C3.1 — classification persistence foundation and operational readiness
 
+Historical foundation notes below describe v1. The current transition accepts v1
+and v2 records, writes new decisions as v2 and requires the exact dual-version
+manifest. Follow the [v2 rollout/rollback instructions](classification-v2-rollout.md);
+no DDL or stored-data conversion happens automatically.
+
 D1–D10 were explicitly approved by the project owner in task C3.1 on 2026-10-21.
 Option A, SHA-256 source fingerprint v1 and current-record audit v1 are selected.
 This records design approval, **not deployment or production migration approval**.

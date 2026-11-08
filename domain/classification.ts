@@ -1,7 +1,7 @@
 /** Pure versioned domain contract. No IO, authorization, persistence or inference. */
 export const PROVISIONAL_TAXONOMY_VERSION = 'financial-layers-v1-provisional' as const;
 export const STABLE_TAXONOMY_VERSION = 'financial-classification-v1' as const;
-// Standalone contract only; legacy/runtime version support remains unchanged.
+// New writes use v2; legacy validators retain exact v1/provisional semantics.
 export const TAXONOMY_VERSION_V2 = 'financial-classification-v2' as const;
 export type TaxonomyVersion = typeof PROVISIONAL_TAXONOMY_VERSION | typeof STABLE_TAXONOMY_VERSION;
 export const isSupportedTaxonomyVersion = (value: unknown): value is TaxonomyVersion =>
@@ -171,7 +171,7 @@ const validateDecision = <Version extends string, Assignment>(
   return success(Object.freeze({ ...base, state: record.state }));
 };
 
-/** Legacy structural contract. V2 is deliberately excluded from runtime consumers. */
+/** Legacy structural contract. Callers must explicitly select the v2 validator. */
 export const validateClassificationDecision = (input: unknown): ValidationResult<ClassificationDecision> =>
   validateDecision(input, isSupportedTaxonomyVersion, validateClassificationAssignment);
 

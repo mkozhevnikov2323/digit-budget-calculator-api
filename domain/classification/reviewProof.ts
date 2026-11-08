@@ -3,7 +3,7 @@
  * No application imports, IO, env, persistent keys or production adapters here. */
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
 import { types } from 'node:util';
-import { STABLE_TAXONOMY_VERSION } from '../classification';
+import { STABLE_TAXONOMY_VERSION, TAXONOMY_VERSION_V2 } from '../classification';
 import { readWriteFields, validateManualCommand, validateVerifiedReview,
   type ManualCommand, type VerifiedReview } from './writeCommand';
 
@@ -144,6 +144,7 @@ const checkedRing = (input: unknown): Ring | undefined => {
 };
 
 type Claims = Readonly<{
+  taxonomyVersion: typeof STABLE_TAXONOMY_VERSION | typeof TAXONOMY_VERSION_V2;
   proofId: string; deploymentId: string; context: TrustedProofContext; review: VerifiedReview;
   command: ManualCommand; issuedAt: number; expiresAt: number;
 }>;
@@ -154,7 +155,7 @@ const encodeClaims = (c: Claims): string => compact(owned({
   proofId: c.proofId, actor: c.context.actor, credentialBinding: c.context.credentialBinding,
   browserReviewContext: c.context.browserReviewContext, dataset: c.command.dataset, operationId: c.command.operationId,
   sourceFingerprint: c.review.sourceFingerprint, sourceFingerprintVersion: c.review.sourceFingerprintVersion,
-  taxonomyVersion: STABLE_TAXONOMY_VERSION, kind: c.command.kind, state: c.command.state,
+  taxonomyVersion: c.taxonomyVersion, kind: c.command.kind, state: c.command.state,
   ...(c.command.assignment ? { assignment: owned({ economicRole: c.command.assignment.economicRole,
     layer: c.command.assignment.layer }) } : {}),
   expectedRevision: c.command.expectedRevision, requestId: c.command.requestId,
@@ -163,7 +164,7 @@ const encodeClaims = (c: Claims): string => compact(owned({
 const decodeClaims = (plaintext: Buffer): Claims | undefined => {
   const r = data(JSON.parse(plaintext.toString('utf8')) as unknown, claimFields);
   if (!r || r.proofVersion !== REVIEW_PROOF_VERSION || r.purpose !== PURPOSE || r.audience !== AUDIENCE
-    || r.taxonomyVersion !== STABLE_TAXONOMY_VERSION || !deployment(r.deploymentId) || !uuid(r.proofId)
+    || (r.taxonomyVersion !== STABLE_TAXONOMY_VERSION && r.taxonomyVersion !== TAXONOMY_VERSION_V2) || !deployment(r.deploymentId) || !uuid(r.proofId)
     || !owner(r.operationId) || !seconds(r.issuedAt) || !seconds(r.expiresAt)
     || r.issuedAt >= r.expiresAt || r.expiresAt - r.issuedAt > REVIEW_PROOF_MAX_TTL_SECONDS) return undefined;
   // Credential expiry is trusted context, not a plaintext claim. Its upper bound is checked later.
@@ -175,7 +176,7 @@ const decodeClaims = (plaintext: Buffer): Claims | undefined => {
   const review = validateVerifiedReview({ kind: 'verified_manual_review', owner: r.actor, dataset: r.dataset,
     operationId: r.operationId, sourceFingerprint: r.sourceFingerprint, sourceFingerprintVersion: r.sourceFingerprintVersion });
   if (!context || !command || !review.ok) return undefined;
-  const c: Claims = { proofId: r.proofId, deploymentId: r.deploymentId, context, command, review: review.value,
+  const c: Claims = { taxonomyVersion: r.taxonomyVersion, proofId: r.proofId, deploymentId: r.deploymentId, context, command, review: review.value,
     issuedAt: r.issuedAt, expiresAt: r.expiresAt };
   // Also rejects duplicate JSON keys and invalid UTF-8 without permissive parsing fallbacks.
   return Buffer.from(encodeClaims(c), 'utf8').equals(plaintext) ? c : undefined;
@@ -272,7 +273,7 @@ export const createReviewProofFoundation = (
         || review.value.operationId !== command.operationId) return fail('context_mismatch');
       const expiresAt = Math.min(time + REVIEW_PROOF_MAX_TTL_SECONDS, context.credentialExpiresAt);
       try {
-        const plaintext = Buffer.from(encodeClaims({ proofId: randomUUID(), deploymentId, context,
+        const plaintext = Buffer.from(encodeClaims({ taxonomyVersion: TAXONOMY_VERSION_V2, proofId: randomUUID(), deploymentId, context,
           review: review.value, command, issuedAt: time, expiresAt }), 'utf8');
         if (plaintext.length > MAX_PLAINTEXT) return fail('invalid_claims');
         const nonce = randomBytes(12), cipher = createCipheriv('aes-256-gcm', encryptionKey, nonce, { authTagLength: 16 });
