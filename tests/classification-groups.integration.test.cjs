@@ -1267,5 +1267,44 @@ describe(
         409,
       );
     });
+    it('virtual legacy system metadata is readable but never eligible before explicit catalog initialization', async () => {
+      const {
+        seedInitialClassificationRules: seed,
+      } = require('../dist/scripts/seedClassificationRules');
+      assert.equal((await seed(h.mongoose.connection, A, true)).created, 8);
+      await db
+        .collection('expenses')
+        .updateOne({ _id: oid(ID) }, { $set: { category: 'Продукты' } });
+      const preview = () =>
+        req('POST', '/preview', {
+          version: 'classification-group-preview-v3',
+          startInclusive: start,
+          endExclusive: end,
+          operations: [{ dataset: 'expenses', operationId: ID }],
+        });
+      let r = await preview();
+      assert.equal(r.status, 200);
+      assert.equal(r.body.result.proposals[0].eligible, false);
+      assert.equal(
+        r.body.result.proposals[0].match.diagnostic,
+        'group_missing',
+      );
+      assert.equal(
+        await db.collection('classification_groups').countDocuments({}),
+        0,
+      );
+      assert.equal(
+        await db.collection('operation_classifications').countDocuments({}),
+        0,
+      );
+      await initialize();
+      r = await preview();
+      assert.equal(r.body.result.proposals[0].eligible, true);
+      assert.equal(r.body.result.proposals[0].match.diagnostic, 'ready');
+      assert.equal(
+        await db.collection('operation_classifications').countDocuments({}),
+        0,
+      );
+    });
   },
 );

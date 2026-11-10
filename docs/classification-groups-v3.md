@@ -169,7 +169,7 @@ Reset: `state:"explicit_unclassified"` (явный отказ) или `"cleared"
 | DELETE `/rules/:id` | `{"expectedEtag":"<64 hex>"}` → `result:{deleted:true}` |
 
 Rule result включает `id,dataset,enabled,category/title|source,groupId,group,etag,revision,diagnostic,createdAt,updatedAt`.
-`diagnostic`: `ready|disabled|group_missing|group_inactive`. Строки сравниваются
+`diagnostic`: `ready|disabled|group_missing|group_inactive`. Virtual system metadata до явной инициализации каталога имеет `group_missing` и не даёт eligible proposal. Строки сравниваются
 `trim().toLowerCase()`; category+title приоритетнее category, disabled rule игнорируется.
 Недоступная группа у специфичного правила диагностируется, а не подменяется более
 общим правилом. Rename не меняет target. Неактивную группу назначить правилу нельзя;

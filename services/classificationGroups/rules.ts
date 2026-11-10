@@ -50,7 +50,7 @@ export const ruleView = async (
     revision: rule.revision,
     diagnostic: !rule.enabled
       ? 'disabled'
-      : !group
+      : !group || 'virtual' in group
         ? 'group_missing'
         : group.status !== 'active'
           ? 'group_inactive'
