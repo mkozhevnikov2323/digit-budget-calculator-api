@@ -92,7 +92,7 @@ export const prepareClassificationDocument = (input: unknown): PersistenceResult
 };
 
 /** Inspect native BSON data fields without calling caller-supplied conversion hooks. */
-const bsonId = (input: unknown): string | undefined => {
+export const bsonId = (input: unknown): string | undefined => {
   try {
     if (!input || typeof input !== 'object' || Object.getPrototypeOf(input) !== Types.ObjectId.prototype) return undefined;
     if (Reflect.ownKeys(input).length !== 1) return undefined;
@@ -112,7 +112,7 @@ const bsonId = (input: unknown): string | undefined => {
     return text;
   } catch { return undefined; }
 };
-const bsonNumber = (input: unknown): unknown => {
+export const bsonNumber = (input: unknown): unknown => {
   if (typeof input === 'number') return input;
   try {
     if (!input || typeof input !== 'object' || Object.getPrototypeOf(input) !== mongo.BSON.Long.prototype) return undefined;

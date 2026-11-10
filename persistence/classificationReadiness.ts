@@ -2,6 +2,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { mongo } from 'mongoose';
 import { CLASSIFICATION_MANIFEST as manifest } from './classificationManifest';
+import { GROUP_DECISION_MANIFEST } from './classificationGroupsManifest';
 
 export const classificationReadiness = async (db: mongo.Db): Promise<boolean> => {
   const collections = await db.listCollections({ name: manifest.collectionName },
@@ -11,7 +12,7 @@ export const classificationReadiness = async (db: mongo.Db): Promise<boolean> =>
   if (collection.type !== 'collection' || !options || options.capped || options.timeseries
     || options.validationLevel !== manifest.options.validationLevel
     || options.validationAction !== manifest.options.validationAction
-    || !isDeepStrictEqual(options.validator, manifest.options.validator)
+    || (!isDeepStrictEqual(options.validator, manifest.options.validator) && !isDeepStrictEqual(options.validator, GROUP_DECISION_MANIFEST.options.validator))
     // MongoDB omits the default simple collation from collection/index metadata.
     || !isDeepStrictEqual(options.collation ?? { locale: 'simple' }, manifest.options.collation)) return false;
   const indexes = await db.collection(manifest.collectionName).listIndexes({ maxTimeMS: 3000 }).toArray();

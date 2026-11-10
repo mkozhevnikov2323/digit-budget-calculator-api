@@ -23,6 +23,8 @@ router.use('/balance', require('./balance'));
 // Provisional read-only recurrence observations (after JWT middleware).
 router.use('/analytics/recurrence', require('./recurrence'));
 
+router.use('/classification-groups', require('./classificationGroups').classificationGroupsRouter);
+
 router.use('/classification-rules', require('./classificationRules').classificationRulesRouter);
 
 router.use('/classifications', require('./classifications'));
