@@ -3,7 +3,7 @@ import type { RequestHandler } from 'express';
 import bodyParser = require('body-parser');
 import { sendClassificationHttpError } from '../services/classificationHttpError';
 
-export const isClassificationPost = (method: string, path: string): boolean => method === 'PUT' && /^\/classifications\/[^/]+\/[^/]+\/decision\/?$/.test(path) || method === 'POST'
+export const isClassificationPost = (method: string, path: string): boolean => ['POST','PUT','PATCH','DELETE'].includes(method) && /^\/classification-groups(?:\/|$)/.test(path) || method === 'PUT' && /^\/classifications\/[^/]+\/[^/]+\/decision\/?$/.test(path) || method === 'POST'
   && (/^\/classifications\/history\/read\/?$/.test(path)
     || /^\/classifications\/[^/]+\/[^/]+\/(reviews|commands|commands\/reconcile|c-v1\/(?:prepare|apply|reconcile))\/?$/.test(path));
 
@@ -49,7 +49,8 @@ export const classificationTransport: RequestHandler = (req, res, next) => {
   } as typeof res.end;
   // Express send checks freshness for GET/HEAD only; never emit an ETag here.
   const send = (status: number, code: string) => {
-    if (/^\/classifications\/history\/read\/?$/.test(req.path)) res.status(status).json({ code });
+    if (/^\/classification-groups(?:\/|$)/.test(req.path)) res.status(status).json({ version:'classification-groups-v3',error:{code},persistence:'not_applied' });
+    else if (/^\/classifications\/history\/read\/?$/.test(req.path)) res.status(status).json({ code });
     else sendClassificationHttpError(res, status, status === 403 ? 'forbidden_origin' : status === 413 ? 'request_too_large'
       : status === 415 ? 'unsupported_media_type' : 'invalid_request');
   };

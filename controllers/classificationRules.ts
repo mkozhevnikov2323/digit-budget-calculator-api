@@ -40,18 +40,18 @@ export const createClassificationRulesController = (connection: Connection) => {
       const unavailable = () => res.status(503).json({ message: 'Хранилище правил недоступно.', persistence: attempted ? 'unknown' : 'not_applied' });
       if (!db) { unavailable(); return; }
       if (action === 'list') {
-        res.json({ rules: await Model.find({ owner }).sort({ _id: 1 }).maxTimeMS(3000).lean().exec() }); return;
+        res.json({ rules: await Model.find({ owner, groupId: { $exists: false } }).setOptions({ strictQuery: false }).sort({ _id: 1 }).maxTimeMS(3000).lean().exec() }); return;
       }
       if (!await classificationRuleReadiness(db, Model.schema.indexes())) { unavailable(); return; }
-      const filter = { _id: new Types.ObjectId(req.params.id as string), owner };
+      const filter = { _id: new Types.ObjectId(req.params.id as string), owner, groupId: { $exists: false } };
       if (action === 'delete') {
         attempted = true;
-        const result = await Model.deleteOne(filter).maxTimeMS(3000).exec();
+        const result = await Model.deleteOne(filter).setOptions({ strictQuery: false }).maxTimeMS(3000).exec();
         if (!result.acknowledged) { unavailable(); return; }
         if (!result.deletedCount) { res.status(404).json({ message: 'Правило не найдено.' }); return; }
         res.status(204).end(); return;
       }
-      const doc = action === 'create' ? new Model({ ...body, owner }) : await Model.findOne(filter).maxTimeMS(3000).exec();
+      const doc = action === 'create' ? new Model({ ...body, owner }) : await Model.findOne(filter).setOptions({ strictQuery: false }).maxTimeMS(3000).exec();
       if (!doc) { res.status(404).json({ message: 'Правило не найдено.' }); return; }
       if (action === 'update') {
         if (body && Object.hasOwn(body, 'dataset') && body.dataset !== doc.dataset) {
@@ -61,7 +61,7 @@ export const createClassificationRulesController = (connection: Connection) => {
           doc.set(key, key === 'title' && value === null && doc.dataset === 'expenses' ? undefined : value);
         }
         // Mongoose save otherwise filters only by _id. Retain owner at the write boundary.
-        doc.$where = { owner };
+        doc.$where = { owner, groupId: { $exists: false } };
       }
       await doc.validate();
       if (connection.readyState !== 1 || !await classificationRuleReadiness(db, Model.schema.indexes())) { unavailable(); return; }
